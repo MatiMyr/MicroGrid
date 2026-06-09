@@ -1,102 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Optional
 
 import pandapower as pp
 import pandapower.std_types as st
 
-
-@dataclass
-class Bus:
-    """Nodo eléctrico de la red."""
-
-    index: Optional[int] = None
-    vn_kv: float = 0.4
-    name: Optional[str] = None
-    type: str = "b"
-    in_service: bool = True
-
-
-@dataclass
-class Line:
-    """Línea entre dos buses."""
-
-    from_bus: int
-    to_bus: int
-    length_km: float
-    std_type: str = "NAYY 4x50 SE"
-    name: Optional[str] = None
-    df: float = 1.0
-    parallel: int = 1
-    in_service: bool = True
-
-
-@dataclass
-class Transformer:
-    """Transformador de la red."""
-
-    hv_bus: int
-    lv_bus: int
-    std_type: str = "0.4 MVA 20/0.4 kV"
-    name: Optional[str] = None
-    tap_pos: float = 0.0
-    in_service: bool = True
-
-
-@dataclass
-class Load:
-    """Carga conectada a un bus."""
-
-    bus: int
-    p_mw: float
-    q_mvar: float = 0.0
-    name: Optional[str] = None
-    scaling: float = 1.0
-    in_service: bool = True
-
-
-@dataclass
-class SolarPanel:
-    """Panel solar representado como generación distribuida."""
-
-    bus: int
-    p_mw: float
-    q_mvar: float = 0.0
-    name: Optional[str] = None
-    scaling: float = 1.0
-    in_service: bool = True
-
-
-@dataclass
-class Battery:
-    """Batería de almacenamiento conectada a un bus."""
-
-    bus: int
-    p_mw: float
-    max_e_mwh: float
-    q_mvar: float = 0.0
-    soc_percent: float = 100.0
-    name: Optional[str] = None
-    in_service: bool = True
-
-
-@dataclass
-class ExternalGrid:
-    """Fuente externa de alimentación para la red."""
-
-    bus: int
-    vm_pu: float = 1.0
-    va_degree: float = 0.0
-    name: Optional[str] = None
-    in_service: bool = True
+from domain.entities import Battery, Bus, ExternalGrid, Line, Load, SolarPanel, Transformer
 
 
 class NetworkModel:
     """Capa de dominio que encapsula todas las llamadas a pandapower."""
 
     def __init__(self, net: Optional[pp.pandapowerNet] = None):
-        self.net = net if net is not None else pp.create_empty_network()
+        if net is None:
+            self.net = pp.create_empty_network()
+            st.add_basic_std_types(self.net)
+        else:
+            self.net = net
 
     def add_bus(self, bus: Bus) -> int:
         return pp.create_bus(
@@ -109,7 +29,6 @@ class NetworkModel:
         )
 
     def add_line(self, line: Line) -> int:
-        st.add_basic_std_types(self.net)
         return pp.create_line(
             self.net,
             from_bus=line.from_bus,
@@ -123,7 +42,6 @@ class NetworkModel:
         )
 
     def add_transformer(self, transformer: Transformer) -> int:
-        st.add_basic_std_types(self.net)
         return pp.create_transformer(
             self.net,
             hv_bus=transformer.hv_bus,
@@ -166,6 +84,7 @@ class NetworkModel:
             max_e_mwh=battery.max_e_mwh,
             soc_percent=battery.soc_percent,
             name=battery.name,
+            scaling=battery.scaling,
             in_service=battery.in_service,
         )
 
@@ -182,20 +101,8 @@ class NetworkModel:
     def remove_bus(self, bus_index: int) -> None:
         pp.drop_buses(self.net, buses=[bus_index], drop_elements=True)
 
-    def remove_line(self, line_index: int) -> None:
-        pp.drop_elements(self.net, element_type="line", element_index=[line_index])
-
-    def remove_transformer(self, transformer_index: int) -> None:
-        pp.drop_elements(self.net, element_type="trafo", element_index=[transformer_index])
-
-    def remove_load(self, load_index: int) -> None:
-        pp.drop_elements(self.net, element_type="load", element_index=[load_index])
-
-    def remove_solar_panel(self, sgen_index: int) -> None:
-        pp.drop_elements(self.net, element_type="sgen", element_index=[sgen_index])
-
-    def remove_battery(self, storage_index: int) -> None:
-        pp.drop_elements(self.net, element_type="storage", element_index=[storage_index])
+    def remove_element(self, element_type: str, index: int) -> None:
+        pp.drop_elements(self.net, element_type=element_type, element_index=[index])
 
     def summary(self) -> dict[str, int]:
         return {

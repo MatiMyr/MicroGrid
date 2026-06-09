@@ -14,7 +14,7 @@ class NetworkModelTest(unittest.TestCase):
         self.assertEqual(len(model.net.sgen), 1)
         self.assertEqual(model.net.sgen.at[solar, "p_mw"], 50.0)
 
-        model.remove_solar_panel(solar)
+        model.remove_element("sgen", solar)
         self.assertEqual(len(model.net.sgen), 0)
 
     def test_service_applies_high_level_instruction(self):

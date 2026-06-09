@@ -41,11 +41,19 @@ class SimEngine:
         return SimEngine._build_result(network, mode="opp")
 
     @staticmethod
+    def _col_sum(df, col: str) -> float:
+        if df is None or col not in df.columns:
+            return 0.0
+        return float(df[col].sum())
+
+    @staticmethod
     def _build_result(network: NetworkModel, mode: str) -> SimulationResult:
         bus_results = getattr(network.net, "res_bus", None)
         line_results = getattr(network.net, "res_line", None)
         load_results = getattr(network.net, "res_load", None)
         sgen_results = getattr(network.net, "res_sgen", None)
+        ext_grid_results = getattr(network.net, "res_ext_grid", None)
+        storage_results = getattr(network.net, "res_storage", None)
 
         node_map: Dict[int, Dict[str, Any]] = {}
         if bus_results is not None:
@@ -70,26 +78,28 @@ class SimEngine:
                     "loading_percent": float(row.get("loading_percent", 0.0)),
                 }
 
-        total_load_mw = 0.0
-        if load_results is not None:
-            total_load_mw += float(load_results.get("p_mw", 0.0).sum())
-        if sgen_results is not None:
-            solar_generation_mw = float(sgen_results.get("p_mw", 0.0).sum())
-        else:
-            solar_generation_mw = 0.0
-
-        total_losses_mw = 0.0
-        if line_results is not None:
-            total_losses_mw = float(line_results.get("pl_mw", 0.0).sum())
+        total_load_mw = SimEngine._col_sum(load_results, "p_mw")
+        solar_generation_mw = SimEngine._col_sum(sgen_results, "p_mw")
+        total_losses_mw = SimEngine._col_sum(line_results, "pl_mw")
 
         voltage_profile = {bus_index: values["vm_pu"] for bus_index, values in node_map.items()}
         line_loading_pct = {line_index: values["loading_percent"] for line_index, values in line_map.items()}
 
-        autosufficiency_pct = 0.0
-        if total_load_mw > 0:
-            autosufficiency_pct = (solar_generation_mw / total_load_mw) * 100.0
+        # res_ext_grid p_mw: positivo = la red inyecta a la microgrid, negativo = exportación.
+        export_to_grid_mw = max(0.0, -SimEngine._col_sum(ext_grid_results, "p_mw"))
 
-        curtailment_solar_mw = max(0.0, solar_generation_mw - total_load_mw)
+        # res_storage p_mw: positivo = descarga, negativo = carga de batería.
+        battery_charging_mw = max(0.0, -SimEngine._col_sum(storage_results, "p_mw"))
+
+        autosufficiency_pct = 0.0
+        denominator = total_load_mw + total_losses_mw
+        if denominator > 0:
+            autosufficiency_pct = min(solar_generation_mw / denominator * 100.0, 100.0)
+
+        curtailment_solar_mw = max(
+            0.0,
+            solar_generation_mw - total_load_mw - total_losses_mw - export_to_grid_mw - battery_charging_mw,
+        )
 
         return SimulationResult(
             mode=mode,
