@@ -1,0 +1,2 @@
+- Shapefiles de redes de distribución reales de ENERSA, SECHEEP y EC SAPEM.
+- Se descargan de datos.gob.ar y los procesa Modelo Red con geopandas.

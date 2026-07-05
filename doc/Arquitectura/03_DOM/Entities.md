@@ -1,0 +1,8 @@
+- Define las entidades de una red:
+	- Battery
+	- Bus
+	- ExternalGrid
+	- Line
+	- Load
+	- SolarPanel
+	- Transformer

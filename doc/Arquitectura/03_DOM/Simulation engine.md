@@ -1,0 +1,4 @@
+- Recibe la red armada con sus perfiles de carga y solar y corre la simulación.
+- Puede correr flujo de carga o flujo óptimo según lo que se pida.
+- Calcula los indicadores: pérdidas, tensiones, cargabilidad, autosuficiencia y curtailment solar.
+- Guarda los resultados en Simulación Repo.

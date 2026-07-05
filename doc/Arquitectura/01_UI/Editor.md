@@ -1,0 +1,3 @@
+- Ofrece dos modos de edición: gráfico (botones) y código Python directo.
+- Muestra la red en tiempo real mientras el usuario edita.
+- Envía los cambios al Servicio Red para que los aplique.

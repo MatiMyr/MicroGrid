@@ -1,0 +1,323 @@
+# Smart Microgrid Argentina — Arquitectura de Archivos
+
+## Estructura de carpetas
+
+```
+mimicrogrid/
+├── ui/
+│   ├── dashboard.py
+│   └── editor.py
+├── app/
+│   ├── network_service.py
+│   ├── simulation_service.py
+│   └── data_sync_service.py
+├── domain/
+│   ├── entities.py
+│   ├── network_model.py
+│   ├── sim_engine.py
+│   └── profile_builder.py
+├── repositories/
+│   ├── json_red_repository.py
+│   ├── json_sim_repository.py
+│   ├── json_demanda_repository.py
+│   └── json_irradiacion_repository.py
+└── main.py
+```
+
+### Datos en disco
+
+```
+data/
+├── redes/              ← json_red_repository.py
+├── resultados/         ← json_sim_repository.py
+└── cache/
+    ├── cammesa/        ← json_demanda_repository.py
+    └── nasa/           ← json_irradiacion_repository.py
+```
+
+---
+
+## Capas
+
+Las carpetas están organizadas en cuatro capas conceptuales. Cada capa tiene una naturaleza distinta:
+
+| Capa | Carpeta | Naturaleza |
+|---|---|---|
+| UI | `ui/` | Interfaces visuales. Muestran datos y capturan acciones del usuario. |
+| Aplicación | `app/` | Coordinación. Orquestan el trabajo entre dominio y datos. |
+| Dominio | `domain/` | Lógica de negocio. Aquí vive el conocimiento eléctrico del sistema. |
+| Repositorios | `repositories/` | Acceso a datos. Traducen entre el formato del dominio y el formato de almacenamiento. |
+
+---
+
+## Tipos de conexión entre archivos
+
+| Tipo | Descripción |
+|---|---|
+| **Solicita** | Un archivo llama a otro y le pide que haga algo |
+| **Retorna** | Un archivo devuelve el resultado de lo que le pidieron |
+| **Lee** | Un archivo consulta datos del repositorio sin pedirle que procese nada |
+| **Escribe** | Un archivo deposita datos en el repositorio para que los persista |
+| **HTTP externo** | Un archivo hace una solicitud a una fuente de datos externa |
+
+No todos los tipos aplican a todas las capas:
+
+| Capa | Tipos que usa |
+|---|---|
+| UI | Solicita, Retorna |
+| Aplicación | Solicita, Retorna, Lee, Escribe, HTTP externo |
+| Dominio | Solicita, Retorna, Lee, Escribe |
+| Repositorios | Retorna, Lee, Escribe |
+| Fuentes externas | HTTP externo |
+
+---
+
+## Archivos
+
+### `ui/` — Interfaces visuales
+
+---
+
+#### `dashboard.py`
+**Módulo conceptual:** Dashboard
+
+Muestra los resultados de la simulación: tensiones por nodo, pérdidas, cargabilidad, autosuficiencia y curtailment solar. Visualiza la red como grafo interactivo con nodos y líneas coloreados según su estado. Permite ver y comparar simulaciones anteriores. Incluye los callbacks de Dash propios: le pide los resultados al Servicio Simulación y los datos de red al Servicio Red, y actualiza los gráficos cuando llegan.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Solicita | `network_service.py` | Le pide cargar una red nueva o aplicar los cambios que hizo el usuario en el Editor |
+| Solicita | `simulation_service.py` | Le pide correr una simulación con la red y el escenario que configuró el usuario |
+| Solicita | `data_sync_service.py` | Le indica que actualice los datos de CAMMESA y NASA cuando el usuario lo pide manualmente |
+| Retorna | `network_service.py` | Recibe la red lista para mostrar |
+| Retorna | `simulation_service.py` | Recibe los resultados: tensiones, pérdidas, cargabilidad y el resto de los indicadores |
+
+---
+
+#### `editor.py`
+**Módulo conceptual:** Editor de red
+
+Ofrece dos modos de edición: gráfico con botones para agregar o quitar elementos, y código Python directo con un editor integrado. Muestra la red en tiempo real mientras el usuario edita. Incluye los callbacks de Dash propios: envía los cambios al Servicio Red y recibe el estado actualizado de la red para mostrarlo.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Solicita | `network_service.py` | Le envía los cambios que hizo el usuario en la red para que los aplique |
+| Retorna | `network_service.py` | Recibe el estado actualizado de la red para mostrarlo |
+
+---
+
+### `app/` — Coordinación
+
+---
+
+#### `network_service.py`
+**Módulo conceptual:** Servicio Red
+
+Es el responsable de tener siempre una red lista para simular. Sabe cómo cargar una red desde tres fuentes distintas: SimBench, un shapefile argentino o código Python del usuario. Cuando el usuario hace un cambio en el Editor, aplica ese cambio sobre la red que ya está cargada. Delega la construcción real de la red en `network_model.py`: él decide qué construir, pero no toca pandapower directamente. Puede guardar y recuperar configuraciones de red a través del repositorio.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Solicita | `network_model.py` | Le dice qué red construir y qué elementos agregar o quitar |
+| Solicita | `json_red_repository.py` | Le pide guardar la configuración actual o recuperar una guardada antes |
+| Solicita | SimBench / datos.gob.ar | Le pide la red base cuando el usuario elige cargar desde SimBench o desde un shapefile argentino |
+| Retorna | `dashboard.py` | Le devuelve la red lista para mostrar en el Dashboard y en el Editor |
+| Retorna | `editor.py` | Le devuelve el estado actualizado de la red para que lo muestre |
+| Retorna | `network_model.py` | Recibe la red lista para simular |
+| Retorna | `json_red_repository.py` | Recibe la topología y los parámetros eléctricos guardados |
+
+---
+
+#### `simulation_service.py`
+**Módulo conceptual:** Servicio Simulación
+
+Coordina todo lo que tiene que pasar para correr una simulación: busca los datos de carga y sol, se los da a `profile_builder.py`, junta todo y se lo entrega a `sim_engine.py`. Una vez que tiene los resultados, los guarda en el repositorio para poder compararlos después. No sabe cómo simular ni cómo leer archivos: su único trabajo es coordinar a los demás.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Solicita | `sim_engine.py` | Le entrega la red y los perfiles de carga y solar, y le pide que corra la simulación |
+| Solicita | `profile_builder.py` | Le pide construir los perfiles de carga y solar para el período y la zona a simular |
+| Retorna | `dashboard.py` | Le devuelve los resultados: tensiones, pérdidas, cargabilidad y el resto de los indicadores |
+| Retorna | `sim_engine.py` | Recibe los resultados calculados: tensiones, flujos, pérdidas e indicadores de desempeño |
+| Retorna | `profile_builder.py` | Recibe los perfiles horarios listos: cuánta energía consume y genera cada nodo hora a hora |
+| Lee | `json_demanda_repository.py` | Lee los datos de demanda de CAMMESA que necesita para armar el escenario |
+| Lee | `json_irradiacion_repository.py` | Lee los datos de irradiación solar de NASA que necesita para armar el escenario |
+| Escribe | `json_sim_repository.py` | Guarda los resultados de la simulación para poder comparar escenarios después |
+
+---
+
+#### `data_sync_service.py`
+**Módulo conceptual:** Sincronizador de Datos
+
+Mantiene actualizados los datos externos sin que el usuario tenga que hacerlo manualmente. Se conecta a CAMMESA y descarga los datos de demanda del mercado eléctrico argentino que aún no están en el caché local. Consulta la API de NASA para obtener los datos de irradiación solar de la zona que se está simulando. Una vez que tiene los datos nuevos, los guarda en los repositorios correspondientes. Puede correrse automáticamente según un horario o ser disparado a mano desde la UI.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Escribe | `json_demanda_repository.py` | Guarda los datos nuevos de CAMMESA que acaba de descargar |
+| Escribe | `json_irradiacion_repository.py` | Guarda los datos nuevos de irradiación solar que acaba de descargar |
+| HTTP externo | CAMMESA | Descarga los datos de demanda horaria del mercado eléctrico argentino |
+| HTTP externo | NASA POWER API | Pide los datos de irradiación solar para las coordenadas de la zona que se simula |
+
+---
+
+### `domain/` — Lógica eléctrica
+
+---
+
+#### `entities.py`
+**Módulo conceptual:** Entidades del Dominio
+
+Define los objetos del dominio eléctrico que viajan por todo el sistema: `Bus`, `Line`, `Transformer`, `Load`, `SolarPanel`, `Battery`, `ExternalGrid` y `SimulationResult`. Son estructuras de datos puras, sin lógica de simulación ni acceso a archivos.
+
+Notas de implementación:
+- `Battery` incluye el campo `scaling: float = 1.0` para consistencia con `Load` y `SolarPanel`.
+- `SimulationResult` contiene estructuras anidadas (`node_results`, `line_results`) que se serializan a JSON.
+
+---
+
+#### `network_model.py`
+**Módulo conceptual:** Modelo Red
+
+Es el único archivo de todo el proyecto que habla directamente con pandapower. Sabe cómo crear buses, líneas, cargas, paneles solares y baterías. Recibe instrucciones en términos eléctricos y las traduce a llamadas de pandapower. Cuando la red viene de un shapefile argentino, usa geopandas para transformar la geometría en elementos de pandapower. Puede ajustar los parámetros de la red con valores reales argentinos que lee del repositorio.
+
+Notas de implementación:
+- `std.add_basic_std_types` se llama únicamente en el constructor, y solo cuando se crea una red nueva (no cuando se recibe un `net` externo ya construido).
+- Los métodos `remove_*` individuales se reemplazan por un único `remove_element(element_type, index)`. `remove_bus` se mantiene separado por su comportamiento especial (`drop_elements=True`).
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `network_service.py` | Le entrega la red lista para simular |
+| Lee | `json_red_repository.py` | Lee los parámetros eléctricos reales de las líneas para ajustar la red |
+
+---
+
+#### `sim_engine.py`
+**Módulo conceptual:** Motor Simulación
+
+Recibe una red ya construida con sus perfiles de carga y generación, y corre la simulación eléctrica. Puede correr dos tipos de simulación: flujo de carga (cómo fluye la energía dada una configuración) y flujo óptimo (cuál es la mejor forma de despachar considerando restricciones). Calcula los indicadores de desempeño: pérdidas totales, rango de tensiones, cargabilidad máxima, cobertura local de demanda y energía solar perdida por restricciones.
+
+Notas de implementación:
+- El helper `_col_sum(df, col)` provee acceso seguro a columnas de DataFrames de resultados, reemplazando el uso incorrecto de `DataFrame.get()`.
+- `curtailment_solar_mw` descuenta exportación a red externa y carga de baterías (`res_ext_grid`, `res_storage`).
+- `autosufficiency_pct` incluye pérdidas en el denominador: `solar / (carga + pérdidas) * 100`.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `simulation_service.py` | Le devuelve los resultados calculados: tensiones, flujos, pérdidas e indicadores |
+| Escribe | `json_sim_repository.py` | Guarda los resultados crudos de la simulación |
+
+---
+
+#### `profile_builder.py`
+**Módulo conceptual:** Constructor Perfiles
+
+Toma los datos de demanda de CAMMESA y los convierte en curvas horarias por tipo de consumidor: residencial, comercial e industrial, cada uno con su forma característica. Toma los datos de irradiación solar de NASA y los convierte en una curva de generación fotovoltaica hora a hora, escalada según el tamaño de los paneles configurados. El resultado es un conjunto de perfiles listos para asignarle a cada nodo de la red antes de simular.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `simulation_service.py` | Le entrega los perfiles horarios listos: cuánta energía consume y genera cada nodo hora a hora |
+| Lee | `json_demanda_repository.py` | Lee el historial de demanda de CAMMESA para construir los perfiles de carga |
+| Lee | `json_irradiacion_repository.py` | Lee la serie de irradiación solar de NASA para construir los perfiles de generación |
+
+---
+
+### `repositories/` — Acceso a datos
+
+Los repositorios son la única parte del sistema que sabe cómo están guardados los datos en disco. Reciben objetos del dominio, los traducen a JSON para guardarlos, y traducen JSON a objetos del dominio cuando los devuelven. El resto del sistema nunca lee ni escribe archivos directamente.
+
+> **Migración futura:** para pasar a SQL basta con crear una versión `sql_xxx_repository.py` de cada uno que implemente los mismos métodos. El resto del código no se toca.
+
+---
+
+#### `json_red_repository.py`
+**Módulo conceptual:** Red Repo
+
+Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Cada red se serializa con `pp.to_json` y se deserializa con `pp.from_json`, preservando toda la topología y los parámetros eléctricos sin transformaciones adicionales. También provee los parámetros eléctricos de referencia que `network_model.py` usa para ajustar redes benchmark con datos reales.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `network_service.py` | Le entrega la topología y los parámetros eléctricos guardados |
+| Lee | `network_model.py` | Provee los parámetros eléctricos reales de las líneas |
+
+---
+
+#### `json_sim_repository.py`
+**Módulo conceptual:** Simulación Repo
+
+Guarda los resultados de cada simulación en archivos JSON bajo `data/resultados/`. El formato JSON permite persistir la estructura anidada de `SimulationResult` (con `node_results` y `line_results`) en un solo archivo sin aplanar. Mantiene un índice con los metadatos de cada corrida (cuándo fue, qué red se usó, qué escenario) para que el Dashboard pueda listarlas. Permite recuperar los resultados completos de una corrida para compararla con otra.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Lee | `simulation_service.py` | Provee resultados de corridas anteriores para comparar escenarios |
+| Lee | `sim_engine.py` | Recibe y persiste los resultados crudos de cada simulación |
+
+---
+
+#### `json_demanda_repository.py`
+**Módulo conceptual:** Demanda Repo
+
+Guarda y lee los datos de demanda horaria de CAMMESA en archivos JSON bajo `data/cache/cammesa/`. Cuando alguien le pide datos de un período, devuelve lo que tiene en el caché. Cuando `data_sync_service.py` trae datos nuevos, los agrega sin duplicar lo que ya existe.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Lee | `simulation_service.py` | Provee datos de demanda para armar el escenario de simulación |
+| Lee | `profile_builder.py` | Provee el historial de demanda para construir los perfiles de carga |
+| Escribe | `data_sync_service.py` | Recibe y persiste los datos nuevos descargados de CAMMESA |
+
+---
+
+#### `json_irradiacion_repository.py`
+**Módulo conceptual:** Irradiación Repo
+
+Guarda y lee los datos de irradiación solar de NASA POWER en archivos JSON bajo `data/cache/nasa/`. Los datos se organizan por ubicación geográfica y período de tiempo. Cuando alguien le pide datos de una zona y un período, devuelve lo que tiene en el caché.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Lee | `simulation_service.py` | Provee datos de irradiación para armar el escenario de simulación |
+| Lee | `profile_builder.py` | Provee la serie de irradiación solar para construir los perfiles de generación |
+| Escribe | `data_sync_service.py` | Recibe y persiste los datos nuevos descargados de NASA POWER |
+
+---
+
+### Fuentes externas
+
+No son archivos del proyecto. Son servicios externos que `data_sync_service.py` y `network_service.py` consultan para obtener datos.
+
+---
+
+#### SimBench / datos.gob.ar
+Fuente de topologías de red base. SimBench provee redes de baja tensión urbana de referencia que se instalan como paquete Python. datos.gob.ar provee shapefiles con la geometría real de las redes de distribución de ENERSA, SECHEEP y EC SAPEM.
+
+#### CAMMESA
+Sitio del mercado eléctrico mayorista desde donde `data_sync_service.py` descarga los datos de demanda horaria. Provee datos de despacho y demanda para todo el sistema eléctrico argentino en formato XLS o CSV.
+
+#### NASA POWER API
+API desde donde `data_sync_service.py` descarga los datos de irradiación solar. Se consulta con coordenadas GPS y rango de fechas, y devuelve la serie de irradiación hora a hora. Es gratuita y no requiere autenticación.
+
+---
+
+## Decisiones de diseño
+
+### Los callbacks de Dash viven dentro de `dashboard.py` y `editor.py`
+
+En Dash, los callbacks son funciones que reaccionan a eventos de la UI y conectan componentes con servicios. La opción inicial era concentrarlos en un `callbacks.py` separado, pero se descartó porque los callbacks son funcionalidad específica de cada interfaz: los del Dashboard responden a eventos de visualización y los del Editor responden a eventos de edición. Separarlos en un archivo aparte solo añade indirección sin aportar claridad. Cada archivo de UI es responsable de sus propios callbacks.
+
+### Sin `interfaces.py`
+
+Se evaluó agregar un archivo con clases abstractas que definieran formalmente los contratos de los repositorios (qué métodos debe tener cada uno). Se descartó porque es sobrediseño para esta etapa: hay un solo desarrollador, una sola implementación JSON y no hay necesidad de que múltiples implementaciones convivan al mismo tiempo. El contrato implícito lo da la forma en que los servicios usan los repositorios. Cuando llegue el momento de migrar a SQL, se decide en ese momento si vale la pena extraer la clase abstracta. Hasta entonces, agregar `interfaces.py` solo suma complejidad sin beneficio concreto.
+
+### Los repositorios traducen, no solo persisten
+
+Un repositorio no es simplemente un lector/escritor de archivos. Su responsabilidad es traducir en ambas direcciones: cuando guarda, convierte un objeto del dominio (por ejemplo, un `SimulationResult`) al formato de almacenamiento (JSON). Cuando lee, convierte el formato de almacenamiento de vuelta a un objeto del dominio. El resto del sistema nunca ve una ruta de archivo ni un JSON crudo. Solo conoce objetos Python. Esto garantiza que cambiar el backend de almacenamiento (de JSON a SQL, por ejemplo) no requiere tocar ningún archivo fuera de la carpeta `repositories/`.
+
+### Persistencia en JSON en lugar de CSV
+
+Los archivos JSON reemplazan a los CSV en todos los repositorios. Los motivos:
+- `SimulationResult` contiene estructuras anidadas (`node_results`, `line_results`) que no se representan naturalmente en CSV sin aplanar o fragmentar en múltiples archivos.
+- pandapower provee serialización nativa con `pp.to_json` / `pp.from_json`; forzar la red a CSV requería un workaround innecesario.
+- Un archivo JSON por entidad simplifica la gestión de I/O y es legible a mano para debugging.
+- La consistencia del stack pesa más que la ventaja puntual de CSV para datos tabulares simples.
+
+La interfaz abstracta del patrón Repository se mantiene. La migración futura a SQL sigue siendo válida: reemplazar `JsonXxxRepository` por `SqlXxxRepository` sin modificar el resto del código.
+
+### `entities.py` como archivo separado
+
+Las entidades del dominio (`Bus`, `Line`, `Transformer`, `Load`, `SolarPanel`, `Battery`, `ExternalGrid`, `SimulationResult`) se agrupan en un único archivo `entities.py` en lugar de dispersarse entre `network_model.py` y `sim_engine.py`. Esto evita dependencias circulares y deja en claro qué son: estructuras de datos compartidas por toda la capa de dominio, sin lógica de simulación ni acceso a archivos.

@@ -1,0 +1,2 @@
+- Muestra los resultados de la simulación: tensiones, pérdidas, cargabilidad y autosuficiencia.
+- Visualiza la red como grafo interactivo con nodos y líneas coloreados por estado.

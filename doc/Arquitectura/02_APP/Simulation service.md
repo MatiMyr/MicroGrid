@@ -1,0 +1,2 @@
+- Coordina todo lo necesario para correr la simulación y lo entrega a Motor simulación (para que corra simulación).
+- Guarda resultados de simulación en Simulación Repo.

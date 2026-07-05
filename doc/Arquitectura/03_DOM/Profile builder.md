@@ -1,0 +1,3 @@
+- Convierte los datos de demanda de CAMMESA en curvas horarias por tipo de consumidor (residencial, comercial, industrial).
+- Convierte los datos de irradiación de NASA en una curva de generación solar hora a hora.
+- Entrega los perfiles listos para asignar a cada nodo antes de simular.
