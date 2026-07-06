@@ -1,3 +1,3 @@
-- Guarda y recupera configuraciones de red en CSV (data/redes/).
+- Guarda y recupera configuraciones de red en JSON (data/redes/).
 - Cada red se guarda como un conjunto de archivos: buses, líneas, transformadores, generadores y baterías.
 - También provee los parámetros eléctricos reales que Modelo Red usa para ajustar la red.
