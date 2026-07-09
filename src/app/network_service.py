@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import re
-
-from domain.network_model import Battery, Bus, ExternalGrid, Line, Load, NetworkModel, SolarPanel, Transformer
+from domain.network_model import Bus, ExternalGrid, Line, Load, NetworkModel, SolarPanel
 
 
 class NetworkService:
@@ -14,19 +12,7 @@ class NetworkService:
     def get_network(self) -> NetworkModel:
         return self.model
 
-    def apply_instruction(self, instruction: str) -> dict[str, object]:
-        text = instruction.lower()
-        if "panel solar" in text:
-            power_match = re.search(r"(\d+(?:\.\d+)?)\s*kw", text)
-            bus_match = re.search(r"nodo\s*(\d+)", text)
-            if not power_match or not bus_match:
-                raise ValueError("Instrucción de panel solar no reconocida")
-            power_kw = float(power_match.group(1))
-            bus = int(bus_match.group(1))
-            index = self.model.add_solar_panel(SolarPanel(bus=bus, p_mw=power_kw / 1000.0, name=f"Solar-{bus}"))
-            return {"type": "solar", "element_index": index, "bus": bus, "p_mw": power_kw / 1000.0}
-        raise ValueError("Instrucción no soportada en esta versión mínima")
-
+    # Red ejemplo
     def _build_sample_network(self) -> NetworkModel:
         model = NetworkModel()
 
