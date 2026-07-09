@@ -103,13 +103,3 @@ class NetworkModel:
 
     def remove_element(self, element_type: str, index: int) -> None:
         pp.drop_elements(self.net, element_type=element_type, element_index=[index])
-
-    def summary(self) -> dict[str, int]:
-        return {
-            "buses": len(self.net.bus),
-            "lines": len(self.net.line),
-            "trafos": len(self.net.trafo),
-            "loads": len(self.net.load),
-            "sgens": len(self.net.sgen),
-            "storages": len(self.net.storage),
-        }
