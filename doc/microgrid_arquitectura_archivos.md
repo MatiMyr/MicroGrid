@@ -230,7 +230,7 @@ Los repositorios son la única parte del sistema que sabe cómo están guardados
 #### `json_net_repository.py`
 **Módulo conceptual:** Red Repo
 
-Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`, indexadas por el nombre que el usuario le asignó a cada red. Cada red se serializa con `pp.to_json` y se deserializa con `pp.from_json`, preservando toda la topología y los parámetros eléctricos sin transformaciones adicionales. Si se intenta guardar con un nombre que ya existe, lanza una excepción en vez de sobrescribir en silencio (ver [colisión de nombres](#colision-de-nombres-en-el-repositorio-de-redes)). También provee los parámetros eléctricos de referencia que `network_model.py` usa para ajustar redes benchmark con datos reales.
+Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Cada red tiene un id estable (asignado una sola vez, nunca cambia) y un nombre editable por el usuario para mostrar en la UI — ver [id estable vs. nombre editable](#id-estable-vs-nombre-editable-en-el-repositorio-de-redes). Cada red se serializa con `pp.to_json` y se deserializa con `pp.from_json`, preservando toda la topología y los parámetros eléctricos sin transformaciones adicionales. Si se intenta guardar con un nombre que ya existe, lanza una excepción en vez de sobrescribir en silencio (ver [colisión de nombres](#colision-de-nombres-en-el-repositorio-de-redes)). También provee los parámetros eléctricos de referencia que `network_model.py` usa para ajustar redes benchmark con datos reales.
 
 | Tipo | Archivo | Descripción |
 |---|---|---|
@@ -332,3 +332,13 @@ Pendiente de implementar: el loop que encadena el SoC entre instantes, y el índ
 Las redes se acceden por el nombre que el usuario les asignó (con un nombre default sugerido al guardar, que puede cambiar). Si el nombre elegido ya existe —tanto al guardar desde el Editor como al importar un JSON local— `json_net_repository.py` no sobrescribe en silencio: lanza una excepción y se le vuelve a pedir un nombre distinto. Esto evita perder una red guardada por una colisión accidental de nombres, algo más probable una vez que se agregue la importación de archivos de otros usuarios.
 
 Al importar un JSON local, el archivo debe pasar primero por `pp.from_json` para validar que sea una red pandapower válida antes de guardarlo (con `pp.to_json`) bajo el nombre elegido — no se copia el archivo tal cual a `data/redes/`.
+
+### Id estable vs. nombre editable en el repositorio de redes
+
+El nombre de una red es editable por el usuario, así que no puede ser la clave que otras partes del sistema usan para referenciarla. Si `SimulationResult` (u otro dato) guardara el nombre tal cual, renombrar una red obligaría a actualizar esa referencia en todas las simulaciones que la usaron — costoso y frágil, y fácil de dejar referencias rotas.
+
+Por eso cada red tiene dos identificadores con roles distintos:
+- **Id estable:** se asigna una sola vez al guardar la red por primera vez, y nunca cambia. Es lo que `SimulationResult` y cualquier otro dato usan para referenciar "qué red se usó" — nunca el nombre.
+- **Nombre editable:** la etiqueta que el usuario ve y puede cambiar en el Editor y el Dashboard. Renombrar una red solo actualiza el nombre asociado a su id, en un único lugar — ninguna simulación previa necesita tocarse.
+
+El nombre sigue siendo relevante para la UI y para la validación de colisión (dos redes no pueden mostrarse con el mismo nombre), pero deja de ser la clave interna de referencia entre archivos.
