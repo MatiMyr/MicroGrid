@@ -104,6 +104,7 @@ class SimulationResult:
     curtailment_solar_mw: float
     node_results: Dict[int, Dict[str, Any]] = field(default_factory=dict)
     line_results: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+    battery_soc_result: Dict[int, float] = field(default_factory=dict)
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     nombre_red: str = ""
