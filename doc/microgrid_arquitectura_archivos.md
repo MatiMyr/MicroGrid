@@ -131,16 +131,16 @@ Es el responsable de tener siempre una red lista para simular. Sabe cómo cargar
 
 Coordina todo lo que tiene que pasar para correr una simulación: busca los datos de carga y sol, se los da a `profile_builder.py`, junta todo y se lo entrega a `simulation_engine.py`. Una vez que tiene los resultados, los guarda en el repositorio para poder compararlos después. No sabe cómo simular ni cómo leer archivos: su único trabajo es coordinar a los demás.
 
-| Tipo | Archivo | Descripción |
-|---|---|---|
-| Solicita | `simulation_engine.py` | Le entrega la red y los perfiles de carga y solar, y le pide que corra la simulación |
-| Solicita | `profile_builder.py` | Le pide construir los perfiles de carga y solar para el período y la zona a simular |
-| Retorna | `dashboard.py` | Le devuelve los resultados: tensiones, pérdidas, cargabilidad y el resto de los indicadores |
-| Retorna | `simulation_engine.py` | Recibe los resultados calculados: tensiones, flujos, pérdidas e indicadores de desempeño |
-| Retorna | `profile_builder.py` | Recibe los perfiles horarios listos: cuánta energía consume y genera cada nodo hora a hora |
-| Lee | `json_demanda_repository.py` | Lee los datos de demanda de CAMMESA que necesita para armar el escenario |
-| Lee | `json_irradiacion_repository.py` | Lee los datos de irradiación solar de NASA que necesita para armar el escenario |
-| Escribe | `json_simulation_repository.py` | Guarda los resultados de la simulación para poder comparar escenarios después |
+| Tipo     | Archivo                         | Descripción                                                                                             |
+| -------- | ------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Solicita | `simulation_engine.py`          | Le entrega la red y los perfiles de carga y solar, y le pide que corra la simulación                    |
+| Solicita | `profile_builder.py`            | Le pide construir los perfiles de carga y solar para el período y la zona a simular                     |
+| Retorna  | `dashboard.py`                  | Le devuelve los resultados: tensiones, pérdidas, cargabilidad y el resto de los indicadores             |
+| Retorna  | `simulation_engine.py`          | Recibe los resultados calculados: tensiones, flujos, pérdidas e indicadores de desempeño                |
+| Retorna  | `profile_builder.py`            | Recibe los perfiles horarios listos: cuánta energía consume y genera cada nodo hora a hora              |
+| Escribe  | `json_simulation_repository.py` | Guarda cada resultado por instante, indexado por su hash                                                |
+| Lee      | `json_simulation_repository.py` | Busca por hash si ya existe el resultado de un instante para no resimularlo (ver cache de simulaciones) |
+
 
 ---
 
@@ -242,7 +242,7 @@ Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Ca
 #### `json_simulation_repository.py`
 **Módulo conceptual:** Simulación Repo
 
-Guarda los resultados de cada simulación en archivos JSON bajo `data/resultados/`. El formato JSON permite persistir la estructura anidada de `SimulationResult` (con `node_results` y `line_results`) en un solo archivo sin aplanar. Mantiene un índice con los metadatos de cada corrida (cuándo fue, qué red se usó, qué escenario) para que el Dashboard pueda listarlas. Permite recuperar los resultados completos de una corrida para compararla con otra.
+Guarda los resultados de cada simulación en archivos JSON bajo `data/resultados/`, uno por instante (no por corrida completa), indexado por su hash de entrada en vez de un id random — así verificar si un instante ya fue simulado es un acceso directo (`{hash}.json`), no un escaneo del directorio. El formato JSON permite persistir la estructura anidada de `SimulationResult` (con `node_results` y `line_results`) en un solo archivo sin aplanar. Una corrida de varios días se reconstruye juntando los instantes que comparten red y período; no se guarda como una unidad separada. Ver [[#Cache de simulaciones por instante]] para el detalle de la clave.
 
 | Tipo | Archivo | Descripción |
 |---|---|---|
@@ -300,14 +300,6 @@ API desde donde `data_sync_service.py` descarga los datos de irradiación solar.
 
 En Dash, los callbacks son funciones que reaccionan a eventos de la UI y conectan componentes con servicios. La opción inicial era concentrarlos en un `callbacks.py` separado, pero se descartó porque los callbacks son funcionalidad específica de cada interfaz: los del Dashboard responden a eventos de visualización y los del Editor responden a eventos de edición. Separarlos en un archivo aparte solo añade indirección sin aportar claridad. Cada archivo de UI es responsable de sus propios callbacks.
 
-### Sin `interfaces.py`
-
-Se evaluó agregar un archivo con clases abstractas que definieran formalmente los contratos de los repositorios (qué métodos debe tener cada uno). Se descartó porque es sobrediseño para esta etapa: hay un solo desarrollador, una sola implementación JSON y no hay necesidad de que múltiples implementaciones convivan al mismo tiempo. El contrato implícito lo da la forma en que los servicios usan los repositorios. Cuando llegue el momento de migrar a SQL, se decide en ese momento si vale la pena extraer la clase abstracta. Hasta entonces, agregar `interfaces.py` solo suma complejidad sin beneficio concreto.
-
-### Los repositorios traducen, no solo persisten
-
-Un repositorio no es simplemente un lector/escritor de archivos. Su responsabilidad es traducir en ambas direcciones: cuando guarda, convierte un objeto del dominio (por ejemplo, un `SimulationResult`) al formato de almacenamiento (JSON). Cuando lee, convierte el formato de almacenamiento de vuelta a un objeto del dominio. El resto del sistema nunca ve una ruta de archivo ni un JSON crudo. Solo conoce objetos Python. Esto garantiza que cambiar el backend de almacenamiento (de JSON a SQL, por ejemplo) no requiere tocar ningún archivo fuera de la carpeta `repositories/`.
-
 ### Persistencia en JSON en lugar de CSV
 
 Los archivos JSON reemplazan a los CSV en todos los repositorios. Los motivos:
@@ -318,6 +310,17 @@ Los archivos JSON reemplazan a los CSV en todos los repositorios. Los motivos:
 
 La interfaz abstracta del patrón Repository se mantiene. La migración futura a SQL sigue siendo válida: reemplazar `JsonXxxRepository` por `SqlXxxRepository` sin modificar el resto del código.
 
-### `entities.py` como archivo separado
+### Cache de simulaciones por instante
 
-Las entidades del dominio (`Bus`, `Line`, `Transformer`, `Load`, `SolarPanel`, `Battery`, `ExternalGrid`, `SimulationResult`) se agrupan en un único archivo `entities.py` en lugar de dispersarse entre `network_model.py` y `simulation_engine.py`. Esto evita dependencias circulares y deja en claro qué son: estructuras de datos compartidas por toda la capa de dominio, sin lógica de simulación ni acceso a archivos.
+`json_simulation_repository.py` cachea cada simulación (una hora/instante puntual) por separado, no por corrida completa (ej: 7 días), para poder reusar resultados en ventanas de fechas solapadas.
+
+**Clave de cache por instante:** `hash(red sin tablas res_*, carga[H], solar[H], tipo de corrida, SoC inicial por batería[H])`.
+
+Motivos:
+- Un `pandapowerNet` incluye tablas de resultado (`res_bus`, `res_load`, etc.) que cambian si la red ya fue simulada antes; se excluyen del hash porque no son parte del input.
+- La serialización de la red debe ser canónica (orden de claves fijo, floats redondeados) para que la misma red siempre hashee igual, sin importar el orden en que se construyó.
+- `pp.runpp` no tiene memoria entre corridas: el estado de carga (SoC) de una batería no se actualiza solo de una hora a la siguiente. Por eso el SoC inicial de cada instante es parte explícita del hash, y no un dato implícito en la red o el perfil.
+- El SoC del primer instante de una corrida nueva lo define el usuario (o el default de `Battery.soc_percent`); el de cada instante siguiente lo calcula automáticamente el sistema a partir del `res_storage.p_mw` del instante anterior.
+- Con esto, simular "días 3-6" reusa del cache los instantes cuyo SoC de partida coincide con el resultado real de haber simulado "días 1-2" antes, y resimula (y cachea aparte) si se pide un SoC de partida distinto.
+
+Pendiente de implementar: el loop que encadena el SoC entre instantes, y el índice que agrupa los `SimulationResult` de una corrida para el Dashboard.
