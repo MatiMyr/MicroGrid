@@ -169,7 +169,7 @@ Define los objetos del dominio eléctrico que viajan por todo el sistema: `Bus`,
 
 Notas de implementación:
 - `Battery` incluye el campo `scaling: float = 1.0` para consistencia con `Load` y `SolarPanel`.
-- `SimulationResult` contiene estructuras anidadas (`node_results`, `line_results`) que se serializan a JSON.
+- `SimulationResult` contiene estructuras anidadas (`node_results`, `line_results`, `battery_soc_result`) que se serializan a JSON.
 
 ---
 
@@ -230,7 +230,7 @@ Los repositorios son la única parte del sistema que sabe cómo están guardados
 #### `json_net_repository.py`
 **Módulo conceptual:** Red Repo
 
-Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Cada red se serializa con `pp.to_json` y se deserializa con `pp.from_json`, preservando toda la topología y los parámetros eléctricos sin transformaciones adicionales. También provee los parámetros eléctricos de referencia que `network_model.py` usa para ajustar redes benchmark con datos reales.
+Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`, indexadas por el nombre que el usuario le asignó a cada red. Cada red se serializa con `pp.to_json` y se deserializa con `pp.from_json`, preservando toda la topología y los parámetros eléctricos sin transformaciones adicionales. Si se intenta guardar con un nombre que ya existe, lanza una excepción en vez de sobrescribir en silencio (ver [colisión de nombres](#colision-de-nombres-en-el-repositorio-de-redes)). También provee los parámetros eléctricos de referencia que `network_model.py` usa para ajustar redes benchmark con datos reales.
 
 | Tipo | Archivo | Descripción |
 |---|---|---|
@@ -323,4 +323,12 @@ Motivos:
 - El SoC del primer instante de una corrida nueva lo define el usuario (o el default de `Battery.soc_percent`); el de cada instante siguiente lo calcula automáticamente el sistema a partir del `res_storage.p_mw` del instante anterior.
 - Con esto, simular "días 3-6" reusa del cache los instantes cuyo SoC de partida coincide con el resultado real de haber simulado "días 1-2" antes, y resimula (y cachea aparte) si se pide un SoC de partida distinto.
 
+**Dónde vive el cálculo del SoC resultante:** en `simulation_engine.py`, no en `simulation_service.py`. Calcular el SoC a partir de `res_storage.p_mw` es conocimiento eléctrico del dominio (mismo tipo de cálculo que ya hace `_build_result` con `autosufficiency_pct` o `curtailment_solar_mw`), no orquestación. `simulation_service.py` se limita a encadenar el loop: corre el instante H, toma el SoC resultante que le devuelve el dominio, se lo pasa como input al instante H+1. El SoC resultante se persiste en `SimulationResult.battery_soc_result` para poder retomar la cadena desde un instante cacheado sin necesitar la corrida en memoria.
+
 Pendiente de implementar: el loop que encadena el SoC entre instantes, y el índice que agrupa los `SimulationResult` de una corrida para el Dashboard.
+
+### Colisión de nombres en el repositorio de redes
+
+Las redes se acceden por el nombre que el usuario les asignó (con un nombre default sugerido al guardar, que puede cambiar). Si el nombre elegido ya existe —tanto al guardar desde el Editor como al importar un JSON local— `json_net_repository.py` no sobrescribe en silencio: lanza una excepción y se le vuelve a pedir un nombre distinto. Esto evita perder una red guardada por una colisión accidental de nombres, algo más probable una vez que se agregue la importación de archivos de otros usuarios.
+
+Al importar un JSON local, el archivo debe pasar primero por `pp.from_json` para validar que sea una red pandapower válida antes de guardarlo (con `pp.to_json`) bajo el nombre elegido — no se copia el archivo tal cual a `data/redes/`.
