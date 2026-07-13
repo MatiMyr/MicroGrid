@@ -14,11 +14,11 @@ mimicrogrid/
 ├── domain/
 │   ├── entities.py
 │   ├── network_model.py
-│   ├── sim_engine.py
+│   ├── simulation_engine.py
 │   └── profile_builder.py
 ├── repositories/
-│   ├── json_red_repository.py
-│   ├── json_sim_repository.py
+│   ├── json_net_repository.py
+│   ├── json_simulation_repository.py
 │   ├── json_demanda_repository.py
 │   └── json_irradiacion_repository.py
 └── main.py
@@ -28,8 +28,8 @@ mimicrogrid/
 
 ```
 data/
-├── redes/              ← json_red_repository.py
-├── resultados/         ← json_sim_repository.py
+├── redes/              ← json_net_repository.py
+├── resultados/         ← json_simulation_repository.py
 └── cache/
     ├── cammesa/        ← json_demanda_repository.py
     └── nasa/           ← json_irradiacion_repository.py
@@ -117,30 +117,30 @@ Es el responsable de tener siempre una red lista para simular. Sabe cómo cargar
 | Tipo | Archivo | Descripción |
 |---|---|---|
 | Solicita | `network_model.py` | Le dice qué red construir y qué elementos agregar o quitar |
-| Solicita | `json_red_repository.py` | Le pide guardar la configuración actual o recuperar una guardada antes |
+| Solicita | `json_net_repository.py` | Le pide guardar la configuración actual o recuperar una guardada antes |
 | Solicita | SimBench / datos.gob.ar | Le pide la red base cuando el usuario elige cargar desde SimBench o desde un shapefile argentino |
 | Retorna | `dashboard.py` | Le devuelve la red lista para mostrar en el Dashboard y en el Editor |
 | Retorna | `editor.py` | Le devuelve el estado actualizado de la red para que lo muestre |
 | Retorna | `network_model.py` | Recibe la red lista para simular |
-| Retorna | `json_red_repository.py` | Recibe la topología y los parámetros eléctricos guardados |
+| Retorna | `json_net_repository.py` | Recibe la topología y los parámetros eléctricos guardados |
 
 ---
 
 #### `simulation_service.py`
 **Módulo conceptual:** Servicio Simulación
 
-Coordina todo lo que tiene que pasar para correr una simulación: busca los datos de carga y sol, se los da a `profile_builder.py`, junta todo y se lo entrega a `sim_engine.py`. Una vez que tiene los resultados, los guarda en el repositorio para poder compararlos después. No sabe cómo simular ni cómo leer archivos: su único trabajo es coordinar a los demás.
+Coordina todo lo que tiene que pasar para correr una simulación: busca los datos de carga y sol, se los da a `profile_builder.py`, junta todo y se lo entrega a `simulation_engine.py`. Una vez que tiene los resultados, los guarda en el repositorio para poder compararlos después. No sabe cómo simular ni cómo leer archivos: su único trabajo es coordinar a los demás.
 
 | Tipo | Archivo | Descripción |
 |---|---|---|
-| Solicita | `sim_engine.py` | Le entrega la red y los perfiles de carga y solar, y le pide que corra la simulación |
+| Solicita | `simulation_engine.py` | Le entrega la red y los perfiles de carga y solar, y le pide que corra la simulación |
 | Solicita | `profile_builder.py` | Le pide construir los perfiles de carga y solar para el período y la zona a simular |
 | Retorna | `dashboard.py` | Le devuelve los resultados: tensiones, pérdidas, cargabilidad y el resto de los indicadores |
-| Retorna | `sim_engine.py` | Recibe los resultados calculados: tensiones, flujos, pérdidas e indicadores de desempeño |
+| Retorna | `simulation_engine.py` | Recibe los resultados calculados: tensiones, flujos, pérdidas e indicadores de desempeño |
 | Retorna | `profile_builder.py` | Recibe los perfiles horarios listos: cuánta energía consume y genera cada nodo hora a hora |
 | Lee | `json_demanda_repository.py` | Lee los datos de demanda de CAMMESA que necesita para armar el escenario |
 | Lee | `json_irradiacion_repository.py` | Lee los datos de irradiación solar de NASA que necesita para armar el escenario |
-| Escribe | `json_sim_repository.py` | Guarda los resultados de la simulación para poder comparar escenarios después |
+| Escribe | `json_simulation_repository.py` | Guarda los resultados de la simulación para poder comparar escenarios después |
 
 ---
 
@@ -185,11 +185,11 @@ Notas de implementación:
 | Tipo | Archivo | Descripción |
 |---|---|---|
 | Retorna | `network_service.py` | Le entrega la red lista para simular |
-| Lee | `json_red_repository.py` | Lee los parámetros eléctricos reales de las líneas para ajustar la red |
+| Lee | `json_net_repository.py` | Lee los parámetros eléctricos reales de las líneas para ajustar la red |
 
 ---
 
-#### `sim_engine.py`
+#### `simulation_engine.py`
 **Módulo conceptual:** Motor Simulación
 
 Recibe una red ya construida con sus perfiles de carga y generación, y corre la simulación eléctrica. Puede correr dos tipos de simulación: flujo de carga (cómo fluye la energía dada una configuración) y flujo óptimo (cuál es la mejor forma de despachar considerando restricciones). Calcula los indicadores de desempeño: pérdidas totales, rango de tensiones, cargabilidad máxima, cobertura local de demanda y energía solar perdida por restricciones.
@@ -202,7 +202,7 @@ Notas de implementación:
 | Tipo | Archivo | Descripción |
 |---|---|---|
 | Retorna | `simulation_service.py` | Le devuelve los resultados calculados: tensiones, flujos, pérdidas e indicadores |
-| Escribe | `json_sim_repository.py` | Guarda los resultados crudos de la simulación |
+| Escribe | `json_simulation_repository.py` | Guarda los resultados crudos de la simulación |
 
 ---
 
@@ -227,7 +227,7 @@ Los repositorios son la única parte del sistema que sabe cómo están guardados
 
 ---
 
-#### `json_red_repository.py`
+#### `json_net_repository.py`
 **Módulo conceptual:** Red Repo
 
 Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Cada red se serializa con `pp.to_json` y se deserializa con `pp.from_json`, preservando toda la topología y los parámetros eléctricos sin transformaciones adicionales. También provee los parámetros eléctricos de referencia que `network_model.py` usa para ajustar redes benchmark con datos reales.
@@ -239,7 +239,7 @@ Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Ca
 
 ---
 
-#### `json_sim_repository.py`
+#### `json_simulation_repository.py`
 **Módulo conceptual:** Simulación Repo
 
 Guarda los resultados de cada simulación en archivos JSON bajo `data/resultados/`. El formato JSON permite persistir la estructura anidada de `SimulationResult` (con `node_results` y `line_results`) en un solo archivo sin aplanar. Mantiene un índice con los metadatos de cada corrida (cuándo fue, qué red se usó, qué escenario) para que el Dashboard pueda listarlas. Permite recuperar los resultados completos de una corrida para compararla con otra.
@@ -247,7 +247,7 @@ Guarda los resultados de cada simulación en archivos JSON bajo `data/resultados
 | Tipo | Archivo | Descripción |
 |---|---|---|
 | Lee | `simulation_service.py` | Provee resultados de corridas anteriores para comparar escenarios |
-| Lee | `sim_engine.py` | Recibe y persiste los resultados crudos de cada simulación |
+| Lee | `simulation_engine.py` | Recibe y persiste los resultados crudos de cada simulación |
 
 ---
 
@@ -320,4 +320,4 @@ La interfaz abstracta del patrón Repository se mantiene. La migración futura a
 
 ### `entities.py` como archivo separado
 
-Las entidades del dominio (`Bus`, `Line`, `Transformer`, `Load`, `SolarPanel`, `Battery`, `ExternalGrid`, `SimulationResult`) se agrupan en un único archivo `entities.py` en lugar de dispersarse entre `network_model.py` y `sim_engine.py`. Esto evita dependencias circulares y deja en claro qué son: estructuras de datos compartidas por toda la capa de dominio, sin lógica de simulación ni acceso a archivos.
+Las entidades del dominio (`Bus`, `Line`, `Transformer`, `Load`, `SolarPanel`, `Battery`, `ExternalGrid`, `SimulationResult`) se agrupan en un único archivo `entities.py` en lugar de dispersarse entre `network_model.py` y `simulation_engine.py`. Esto evita dependencias circulares y deja en claro qué son: estructuras de datos compartidas por toda la capa de dominio, sin lógica de simulación ni acceso a archivos.

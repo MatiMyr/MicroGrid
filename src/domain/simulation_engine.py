@@ -1,44 +1,30 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Dict
 
 import pandapower as pp
 
+from domain.entities import SimulationResult
 from domain.network_model import NetworkModel
-
-
-@dataclass
-class SimulationResult:
-    """Resultado mínimo de simulación para visualización inicial."""
-
-    mode: str
-    total_losses_mw: float
-    voltage_profile: Dict[int, float]
-    line_loading_pct: Dict[int, float]
-    autosufficiency_pct: float
-    curtailment_solar_mw: float
-    node_results: Dict[int, Dict[str, Any]] = field(default_factory=dict)
-    line_results: Dict[int, Dict[str, Any]] = field(default_factory=dict)
 
 
 class SimEngine:
     """Capa de dominio mínima para ejecutar simulaciones sobre una red."""
 
     @staticmethod
-    def runpp(network: NetworkModel) -> SimulationResult:
+    def runpp(network: NetworkModel, nombre_red: str = "", escenario: str = "") -> SimulationResult:
         pp.runpp(network.net)
-        return SimEngine._build_result(network, mode="pp")
+        return SimEngine._build_result(network, mode="pp", nombre_red=nombre_red, escenario=escenario)
 
     @staticmethod
-    def runopp(network: NetworkModel) -> SimulationResult:
+    def runopp(network: NetworkModel, nombre_red: str = "", escenario: str = "") -> SimulationResult:
         try:
             pp.runopp(network.net)
         except Exception:
             # Fallback sencillo: la versión inicial usa el flujo de potencia
             # como base para no bloquear la integración.
             pp.runpp(network.net)
-        return SimEngine._build_result(network, mode="opp")
+        return SimEngine._build_result(network, mode="opp", nombre_red=nombre_red, escenario=escenario)
 
     @staticmethod
     def _col_sum(df, col: str) -> float:
@@ -47,7 +33,9 @@ class SimEngine:
         return float(df[col].sum())
 
     @staticmethod
-    def _build_result(network: NetworkModel, mode: str) -> SimulationResult:
+    def _build_result(
+        network: NetworkModel, mode: str, nombre_red: str = "", escenario: str = ""
+    ) -> SimulationResult:
         bus_results = getattr(network.net, "res_bus", None)
         line_results = getattr(network.net, "res_line", None)
         load_results = getattr(network.net, "res_load", None)
@@ -110,4 +98,6 @@ class SimEngine:
             curtailment_solar_mw=curtailment_solar_mw,
             node_results=node_map,
             line_results=line_map,
+            nombre_red=nombre_red,
+            escenario=escenario,
         )

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 
 @dataclass
@@ -88,3 +90,21 @@ class ExternalGrid:
     va_degree: float = 0.0
     name: Optional[str] = None
     in_service: bool = True
+
+
+@dataclass
+class SimulationResult:
+    """Resultado de una simulación sobre una red."""
+
+    mode: str
+    total_losses_mw: float
+    voltage_profile: Dict[int, float]
+    line_loading_pct: Dict[int, float]
+    autosufficiency_pct: float
+    curtailment_solar_mw: float
+    node_results: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+    line_results: Dict[int, Dict[str, Any]] = field(default_factory=dict)
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    nombre_red: str = ""
+    escenario: str = ""
