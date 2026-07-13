@@ -1,1 +1,0 @@
-Sitio del mercado eléctrico mayorista desde donde el Sincronizador descarga los datos de demanda horaria.

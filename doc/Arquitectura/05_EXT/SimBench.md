@@ -1,2 +1,0 @@
-- Librería Python que provee redes de baja tensión urbana listas para usar.
-- Se instala como paquete y se llama directamente desde Servicio Red.

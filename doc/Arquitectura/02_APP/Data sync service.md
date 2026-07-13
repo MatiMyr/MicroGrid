@@ -1,4 +1,0 @@
-- Actualiza periódicamente los datos externos.
-- Descarga datos CAMMESA.
-- Consulta API Nada para datos irradiación.
-- Guarda los datos en el repo correspondiente.

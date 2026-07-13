@@ -1,3 +1,0 @@
-- Es el único que habla directamente con pandapower.
-- Recibe instrucciones del Servicio Red y las traduce a elementos de red (buses, líneas, paneles, baterías).
-- Cuando la red viene de un shapefile, lo transforma a formato pandapower con geopandas.

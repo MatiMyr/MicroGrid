@@ -1,2 +1,0 @@
-- API de NASA POWER desde donde el Sincronizador pide los datos de irradiación solar por coordenadas GPS.
-- Gratuita, sin autenticación.

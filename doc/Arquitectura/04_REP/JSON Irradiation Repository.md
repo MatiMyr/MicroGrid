@@ -1,3 +1,0 @@
-- Guarda y lee los datos de irradiación de NASA en JSON (data/cache/nasa/).
-- Los datos se organizan por coordenadas GPS y período.
-- Cuando llegan datos nuevos del Sincronizador, los agrega sin duplicar lo que ya hay.

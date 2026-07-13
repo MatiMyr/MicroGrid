@@ -1,4 +1,0 @@
-- Siempre tiene una red lista para simular.
-- Sabe cargar una red (desde SimBench, shapefile argentino o JSON).
-- Sabe guardar configuración de red en Repo Red.
-- Delega construcción de red pandapower a Modelo Red.

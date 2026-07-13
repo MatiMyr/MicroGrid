@@ -1,2 +1,0 @@
-- Guarda y lee los datos de demanda de CAMMESA en JSON (data/cache/cammesa/).
-- Cuando llegan datos nuevos del Sincronizador, los agrega sin duplicar lo que ya hay.

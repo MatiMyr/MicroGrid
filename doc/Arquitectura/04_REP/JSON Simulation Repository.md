@@ -1,3 +1,0 @@
-- Guarda los resultados de cada simulación en JSON (data/resultados/).
-- Mantiene un índice con los datos de cada corrida: cuándo fue, qué red, qué escenario.
-- Permite recuperar cualquier corrida anterior para comparar escenarios.
