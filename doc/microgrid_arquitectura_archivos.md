@@ -182,10 +182,10 @@ Notas de implementación:
 - `std.add_basic_std_types` se llama únicamente en el constructor, y solo cuando se crea una red nueva (no cuando se recibe un `net` externo ya construido).
 - Los métodos `remove_*` individuales se reemplazan por un único `remove_element(element_type, index)`. `remove_bus` se mantiene separado por su comportamiento especial (`drop_elements=True`).
 
-| Tipo | Archivo | Descripción |
-|---|---|---|
-| Retorna | `network_service.py` | Le entrega la red lista para simular |
-| Lee | `json_net_repository.py` | Lee los parámetros eléctricos reales de las líneas para ajustar la red |
+| Tipo    | Archivo                  | Descripción                                                            |
+| ------- | ------------------------ | ---------------------------------------------------------------------- |
+| Retorna | `network_service.py`     | Le entrega la red lista para simular                                   |
+
 
 ---
 
@@ -199,10 +199,9 @@ Notas de implementación:
 - `curtailment_solar_mw` descuenta exportación a red externa y carga de baterías (`res_ext_grid`, `res_storage`).
 - `autosufficiency_pct` incluye pérdidas en el denominador: `solar / (carga + pérdidas) * 100`.
 
-| Tipo | Archivo | Descripción |
-|---|---|---|
-| Retorna | `simulation_service.py` | Le devuelve los resultados calculados: tensiones, flujos, pérdidas e indicadores |
-| Escribe | `json_simulation_repository.py` | Guarda los resultados crudos de la simulación |
+| Tipo    | Archivo                         | Descripción                                                                      |
+| ------- | ------------------------------- | -------------------------------------------------------------------------------- |
+| Retorna | `simulation_service.py`         | Le devuelve los resultados calculados: tensiones, flujos, pérdidas e indicadores |
 
 ---
 
@@ -211,11 +210,11 @@ Notas de implementación:
 
 Toma los datos de demanda de CAMMESA y los convierte en curvas horarias por tipo de consumidor: residencial, comercial e industrial, cada uno con su forma característica. Toma los datos de irradiación solar de NASA y los convierte en una curva de generación fotovoltaica hora a hora, escalada según el tamaño de los paneles configurados. El resultado es un conjunto de perfiles listos para asignarle a cada nodo de la red antes de simular.
 
-| Tipo | Archivo | Descripción |
-|---|---|---|
-| Retorna | `simulation_service.py` | Le entrega los perfiles horarios listos: cuánta energía consume y genera cada nodo hora a hora |
-| Lee | `json_demanda_repository.py` | Lee el historial de demanda de CAMMESA para construir los perfiles de carga |
-| Lee | `json_irradiacion_repository.py` | Lee la serie de irradiación solar de NASA para construir los perfiles de generación |
+| Tipo    | Archivo                          | Descripción                                                                                    |
+| ------- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Retorna | `simulation_service.py`          | Le entrega los perfiles horarios listos: cuánta energía consume y genera cada nodo hora a hora |
+| Lee     | `json_demanda_repository.py`     | Lee el historial de demanda de CAMMESA para construir los perfiles de carga                    |
+| Lee     | `json_irradiacion_repository.py` | Lee la serie de irradiación solar de NASA para construir los perfiles de generación            |
 
 ---
 
@@ -232,10 +231,10 @@ Los repositorios son la única parte del sistema que sabe cómo están guardados
 
 Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Cada red tiene un id estable (asignado una sola vez, nunca cambia) y un nombre editable por el usuario para mostrar en la UI — ver [id estable vs. nombre editable](#id-estable-vs-nombre-editable-en-el-repositorio-de-redes). Cada red se serializa con `pp.to_json` y se deserializa con `pp.from_json`, preservando toda la topología y los parámetros eléctricos sin transformaciones adicionales. Si se intenta guardar con un nombre que ya existe, lanza una excepción en vez de sobrescribir en silencio (ver [colisión de nombres](#colision-de-nombres-en-el-repositorio-de-redes)). También provee los parámetros eléctricos de referencia que `network_model.py` usa para ajustar redes benchmark con datos reales.
 
-| Tipo | Archivo | Descripción |
-|---|---|---|
-| Retorna | `network_service.py` | Le entrega la topología y los parámetros eléctricos guardados |
-| Lee | `network_model.py` | Provee los parámetros eléctricos reales de las líneas |
+| Tipo    | Archivo              | Descripción                                     |
+| ------- | -------------------- | ----------------------------------------------- |
+| Escribe | `network_service.py` | Guarda los datos de la red cargada en el editor |
+| Lee     | `network_service.py` | Obtiene del repo una red guardada previamente   |
 
 ---
 
@@ -244,10 +243,10 @@ Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Ca
 
 Guarda los resultados de cada simulación en archivos JSON bajo `data/resultados/`, uno por instante (no por corrida completa), indexado por su hash de entrada en vez de un id random — así verificar si un instante ya fue simulado es un acceso directo (`{hash}.json`), no un escaneo del directorio. El formato JSON permite persistir la estructura anidada de `SimulationResult` (con `node_results` y `line_results`) en un solo archivo sin aplanar. Una corrida de varios días se reconstruye juntando los instantes que comparten red y período; no se guarda como una unidad separada. Ver [[#Cache de simulaciones por instante]] para el detalle de la clave.
 
-| Tipo | Archivo | Descripción |
-|---|---|---|
-| Lee | `simulation_service.py` | Provee resultados de corridas anteriores para comparar escenarios |
-| Lee | `simulation_engine.py` | Recibe y persiste los resultados crudos de cada simulación |
+| Tipo    | Archivo                 | Descripción                                                         |
+| ------- | ----------------------- | ------------------------------------------------------------------- |
+| Escribe | `simulation_service.py` | Provee resultados luego de correr simulación para persistirlas.     |
+| Lee     | `simulation_service.py` | Lee resultados cuando se solicita simular un escenario ya simulado. |
 
 ---
 
@@ -256,11 +255,10 @@ Guarda los resultados de cada simulación en archivos JSON bajo `data/resultados
 
 Guarda y lee los datos de demanda horaria de CAMMESA en archivos JSON bajo `data/cache/cammesa/`. Cuando alguien le pide datos de un período, devuelve lo que tiene en el caché. Cuando `data_sync_service.py` trae datos nuevos, los agrega sin duplicar lo que ya existe.
 
-| Tipo | Archivo | Descripción |
-|---|---|---|
-| Lee | `simulation_service.py` | Provee datos de demanda para armar el escenario de simulación |
-| Lee | `profile_builder.py` | Provee el historial de demanda para construir los perfiles de carga |
-| Escribe | `data_sync_service.py` | Recibe y persiste los datos nuevos descargados de CAMMESA |
+| Tipo    | Archivo                 | Descripción                                                         |
+| ------- | ----------------------- | ------------------------------------------------------------------- |
+| Lee     | `profile_builder.py`    | Provee el historial de demanda para construir los perfiles de carga |
+| Escribe | `data_sync_service.py`  | Recibe y persiste los datos nuevos descargados de CAMMESA           |
 
 ---
 
@@ -269,16 +267,14 @@ Guarda y lee los datos de demanda horaria de CAMMESA en archivos JSON bajo `data
 
 Guarda y lee los datos de irradiación solar de NASA POWER en archivos JSON bajo `data/cache/nasa/`. Los datos se organizan por ubicación geográfica y período de tiempo. Cuando alguien le pide datos de una zona y un período, devuelve lo que tiene en el caché.
 
-| Tipo | Archivo | Descripción |
-|---|---|---|
-| Lee | `simulation_service.py` | Provee datos de irradiación para armar el escenario de simulación |
-| Lee | `profile_builder.py` | Provee la serie de irradiación solar para construir los perfiles de generación |
-| Escribe | `data_sync_service.py` | Recibe y persiste los datos nuevos descargados de NASA POWER |
+| Tipo    | Archivo                 | Descripción                                                                    |
+| ------- | ----------------------- | ------------------------------------------------------------------------------ |
+| Lee     | `profile_builder.py`    | Provee la serie de irradiación solar para construir los perfiles de generación |
+| Escribe | `data_sync_service.py`  | Recibe y persiste los datos nuevos descargados de NASA POWER                   |
 
 ---
 
 ### Fuentes externas
-
 No son archivos del proyecto. Son servicios externos que `data_sync_service.py` y `network_service.py` consultan para obtener datos.
 
 ---
