@@ -241,8 +241,9 @@ def layout():
                 html.Div(
                     [
                         _legend(),
-                        html.Div("Arrastrá los buses para acomodarlos (la posición se guarda en el código). "
-                                 "Hacé zoom con la rueda: las marcas mantienen su tamaño y los buses se separan.",
+                        html.Div("Tocá un bus para seleccionarlo y ver su detalle; una vez seleccionado podés "
+                                 "arrastrarlo (la posición se guarda en el código). Zoom con la rueda: las marcas "
+                                 "mantienen su tamaño y los buses se separan.",
                                  className="card-sub", style={"padding": "0 14px"}),
                         cyto.Cytoscape(
                             id="ed-graph",

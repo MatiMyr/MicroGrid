@@ -112,12 +112,15 @@ def net_to_elements(
         clases = ["bus"]
         if conteos["ext_grid"].get(bus_idx, 0) > 0:
             clases.append("slack")
-        if selected is not None and bus_idx == int(selected):
+        es_sel = selected is not None and bus_idx == int(selected)
+        if es_sel:
             clases.append("sel")
         el = {
             "data": {"id": f"b{bus_idx}", "label": label, "color": color},
             "classes": " ".join(clases),
-            "grabbable": bool(editable),
+            # Solo el bus seleccionado es arrastrable; el resto queda fijo hasta
+            # seleccionarlo (un tap lo selecciona aunque no sea arrastrable).
+            "grabbable": bool(editable) and es_sel,
         }
         pos = _bus_xy(net, idx)
         if pos is not None:
