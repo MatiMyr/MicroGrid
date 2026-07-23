@@ -122,15 +122,16 @@ def layout():
                                 ]),
                             ]),
                             _acc("🐍  Editor de código Python", [
-                                html.P("Disponibles: model, pp, Bus, Line, Load, SolarPanel, Battery, ExternalGrid, Transformer.",
+                                html.P("Muestra la red actual: editá los parámetros y ejecutá. También podés "
+                                       "agregar elementos con model.add_… (Bus, Line, Load, SolarPanel, Battery, "
+                                       "ExternalGrid, Transformer).",
                                        className="card-sub"),
-                                dcc.Textarea(
-                                    id="ed-code", className="code",
-                                    value="# model.add_bus(Bus(index=3, vn_kv=0.4, name='Nodo 3'))\n# model.add_line(Line(from_bus=2, to_bus=3, length_km=0.1))\n",
-                                    style={"height": "130px"},
-                                ),
-                                html.Div(_btn("Ejecutar código", "ed-btn-code", primary=True),
-                                         style={"marginTop": "8px"}),
+                                dcc.Textarea(id="ed-code", className="code", value="",
+                                             style={"height": "260px"}),
+                                html.Div([
+                                    _btn("Ejecutar código", "ed-btn-code", primary=True),
+                                    _btn("Regenerar desde la red", "ed-btn-code-refresh"),
+                                ], className="row", style={"marginTop": "8px"}),
                             ]),
                             _acc("💾  Guardar red", [
                                 _fila([
@@ -187,6 +188,7 @@ def register_callbacks(app, services):
         Output("ed-summary", "children"),
         Output("ed-status", "children"),
         Output("ed-guardadas", "options"),
+        Output("ed-code", "value"),
         Input("ed-btn-ejemplo", "n_clicks"),
         Input("ed-btn-simbench", "n_clicks"),
         Input("ed-btn-guardada", "n_clicks"),
@@ -198,6 +200,7 @@ def register_callbacks(app, services):
         Input("ed-btn-ext", "n_clicks"),
         Input("ed-btn-rm", "n_clicks"),
         Input("ed-btn-code", "n_clicks"),
+        Input("ed-btn-code-refresh", "n_clicks"),
         Input("ed-btn-save", "n_clicks"),
         Input("ed-btn-save-changes", "n_clicks"),
         State("ed-simbench-code", "value"),
@@ -212,7 +215,7 @@ def register_callbacks(app, services):
         State("ed-code", "value"),
         State("ed-save-name", "value"),
     )
-    def actualizar(_e, _sb, _g, _bus, _line, _load, _sgen, _bat, _ext, _rm, _code, _save, _savech,
+    def actualizar(_e, _sb, _g, _bus, _line, _load, _sgen, _bat, _ext, _rm, _code, _coderef, _save, _savech,
                    simbench_code, guardada_id,
                    bus_vn, bus_name, line_from, line_to, line_len,
                    load_bus, load_p, load_q, sgen_bus, sgen_p,
@@ -257,6 +260,8 @@ def register_callbacks(app, services):
             elif disparador == "ed-btn-code":
                 network_service.aplicar_codigo(code_text or "")
                 status = "Código ejecutado."
+            elif disparador == "ed-btn-code-refresh":
+                status = "Código regenerado desde la red actual."
             elif disparador == "ed-btn-save":
                 rid = network_service.guardar((save_name or "Mi red").strip())
                 status = f"Red guardada (id {rid[:8]}…)."
@@ -269,4 +274,5 @@ def register_callbacks(app, services):
             status = f"⚠ Error: {exc}"
 
         net = network_service.get_network().net
-        return net_to_elements(net), _resumen(net), status, _opciones_guardadas()
+        return (net_to_elements(net), _resumen(net), status,
+                _opciones_guardadas(), network_service.generar_codigo())

@@ -175,9 +175,24 @@ html, body {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 textarea.code {
+  width: 100%;
+  border: 1px solid var(--border-str);
+  background: var(--surface-2);
+  color: var(--ink);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
   font-family: "SFMono-Regular", ui-monospace, "Cascadia Code", Consolas, monospace;
-  font-size: 12.5px; line-height: 1.5;
+  font-size: 12.5px; line-height: 1.55;
+  tab-size: 4;
+  resize: vertical;
+  transition: border-color .15s, box-shadow .15s;
 }
+textarea.code:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+textarea.code::selection { background: var(--accent-soft); }
 
 /* Botones */
 .btn {

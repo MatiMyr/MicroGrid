@@ -134,6 +134,50 @@ class NetworkService:
     def listar_guardadas(self) -> list[dict]:
         return self.net_repo.listar()
 
+    # ---- generación de código editable -----------------------------------
+    def generar_codigo(self) -> str:
+        """Genera un script Python que refleja la red actual, elemento por elemento.
+
+        El script usa asignaciones directas sobre las tablas de pandapower
+        (``net.load.at[i, 'p_mw'] = …``) para que el usuario edite parámetros de
+        elementos ya cargados y los aplique con "Ejecutar código". Es robusto
+        para cualquier red (incluidas las de SimBench) porque no reconstruye la
+        red desde cero. Para agregar elementos nuevos siguen disponibles
+        ``model.add_bus(Bus(...))`` y el resto de las entidades del dominio.
+        """
+        net = self.model.net
+        L: list[str] = [
+            "# Red actual — editá los valores y tocá «Ejecutar código» para aplicarlos.",
+            "# Para agregar elementos: model.add_load(Load(bus=1, p_mw=0.05)), etc.",
+            "net = model.net",
+            "",
+        ]
+
+        def bloque(titulo: str, tabla: str, df, cols: list[str]) -> None:
+            if df is None or not len(df):
+                return
+            L.append(f"# --- {titulo} ({len(df)}) ---")
+            presentes = [c for c in cols if c in df.columns]
+            for idx in df.index:
+                vals = ", ".join(repr(round(float(df.at[idx, c]), 6)) for c in presentes)
+                cols_txt = ", ".join(f"'{c}'" for c in presentes)
+                comentario = ""
+                if "name" in df.columns:
+                    nom = df.at[idx, "name"]
+                    if nom is not None and str(nom) != "nan":
+                        comentario = f"  # {nom}"
+                L.append(f"net.{tabla}.loc[{idx}, [{cols_txt}]] = [{vals}]{comentario}")
+            L.append("")
+
+        bloque("Buses", "bus", net.bus, ["vn_kv"])
+        bloque("Líneas", "line", net.line, ["length_km", "parallel", "df"])
+        bloque("Transformadores", "trafo", net.trafo, ["tap_pos"])
+        bloque("Cargas", "load", net.load, ["p_mw", "q_mvar", "scaling"])
+        bloque("Solar", "sgen", net.sgen, ["p_mw", "q_mvar", "scaling"])
+        bloque("Baterías", "storage", net.storage, ["p_mw", "q_mvar", "max_e_mwh", "soc_percent", "scaling"])
+        bloque("Red externa", "ext_grid", net.ext_grid, ["vm_pu", "va_degree"])
+        return "\n".join(L).rstrip() + "\n"
+
     # ---- red de ejemplo --------------------------------------------------
     def _build_sample_network(self) -> NetworkModel:
         model = NetworkModel()
