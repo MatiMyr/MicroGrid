@@ -54,6 +54,9 @@ def _legend():
 def layout():
     return html.Div(
         [
+            # ---- Cartel sitewide: red del editor desincronizada ----
+            html.Div(id="db-stale-banner", className="sitewide-banner", style={"display": "none"}),
+            dcc.Interval(id="db-stale-check", interval=1500, n_intervals=0),
             # ---- Controles ----
             html.Div(
                 [
@@ -172,6 +175,26 @@ def register_callbacks(app, services):
 
     # El zoom-mapa y la grilla del db-graph se instalan solos desde
     # assets/graph_zoom.js (intervalo autónomo), no desde un callback de Dash.
+
+    # ---- cartel: la red del editor difiere de la simulada ----
+    @app.callback(
+        Output("db-stale-banner", "children"),
+        Output("db-stale-banner", "style"),
+        Input("db-stale-check", "n_intervals"),
+    )
+    def revisar_desincronizacion(_n):
+        actual = simulation_service.network_signature()
+        ultima = simulation_service.last_run_signature
+        if ultima is not None and actual == ultima:
+            return "", {"display": "none"}
+        if ultima is None:
+            msg = ("Todavía no simulaste esta red. Corré la simulación para ver los "
+                   "resultados en el Dashboard.")
+        else:
+            msg = ("La red fue modificada en el Editor desde la última simulación. "
+                   "Corré la simulación para actualizar los resultados del Dashboard.")
+        return ([html.Span("⚠", className="sw-icon"), html.Span(msg)],
+                {"display": "flex"})
 
     # ---- correr simulación ----
     @app.callback(

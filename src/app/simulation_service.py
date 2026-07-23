@@ -22,6 +22,9 @@ class SimulationService:
     """
 
     _TABLAS_INPUT = ["bus", "line", "trafo", "load", "sgen", "storage", "ext_grid"]
+    # Columnas que no son parte de la identidad eléctrica de la red: la posición
+    # gráfica y el estado por hora (escala/SoC que fija la simulación).
+    _SIG_EXCLUDE = {"geo", "scaling", "soc_percent"}
 
     def __init__(
         self,
@@ -32,6 +35,26 @@ class SimulationService:
         self.network_service = network_service or NetworkService()
         self.sim_repo = sim_repo or JsonSimRepository()
         self.profile_builder = profile_builder or ProfileBuilder()
+        # Firma de la red de la última corrida (para detectar cambios en el editor).
+        self.last_run_signature: Optional[str] = None
+
+    def network_signature(self, net=None) -> str:
+        """Hash de la identidad eléctrica de la red (topología + parámetros).
+
+        Excluye la posición gráfica y el estado por hora, de modo que mover un
+        bus o simular no cambia la firma, pero sí lo hace agregar/quitar/editar
+        un elemento eléctrico. Sirve para saber si la red del editor difiere de la
+        que refleja el Dashboard.
+        """
+        net = net if net is not None else self.network_service.get_network().net
+        payload: dict = {}
+        for tabla in self._TABLAS_INPUT:
+            df = getattr(net, tabla, None)
+            if df is not None and len(df):
+                cols = [c for c in df.columns if c not in self._SIG_EXCLUDE]
+                payload[tabla] = json.loads(df[cols].round(6).to_json(orient="index"))
+        serial = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(serial.encode("utf-8")).hexdigest()
 
     # ---- corrida de un solo instante (estado actual de la red) -----------
     def run_pp(self, nombre_red: str = "", escenario: str = "") -> SimulationResult:
@@ -109,6 +132,8 @@ class SimulationService:
                 soc_actual = {int(k): float(v) for k, v in resultado.battery_soc_result.items()}
 
         self.sim_repo.guardar_indice_corrida(run_id, hashes)
+        # La red simulada pasa a ser la referencia del Dashboard.
+        self.last_run_signature = self.network_signature(network.net)
         return {"run_id": run_id, "resultados": resultados}
 
     def cargar_corrida(self, run_id: str) -> list[SimulationResult]:
