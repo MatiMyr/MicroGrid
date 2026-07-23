@@ -270,27 +270,8 @@ def _resumen(net) -> str:
 def register_callbacks(app, services):
     network_service = services["network_service"]
 
-    # Al soltar un bus tras arrastrarlo, cytoscape emite 'dragfree' (no 'tap').
-    # Este hook reenvía ese evento como 'tap' para que el callback de posición
-    # (Input ed-graph.tapNode) se dispare y guarde la nueva posición en el código.
-    app.clientside_callback(
-        """
-        function(elements) {
-            setTimeout(function() {
-                var d = document.getElementById('ed-graph');
-                var cy = d && d._cyreg && d._cyreg.cy;
-                if (cy && !cy._dragHooked) {
-                    cy._dragHooked = true;
-                    cy.on('dragfree', 'node', function(e) { e.target.emit('tap'); });
-                }
-                if (window.mgInstallMapZoom) { window.mgInstallMapZoom('ed-graph'); }
-            }, 120);
-            return window.dash_clientside.no_update;
-        }
-        """,
-        Output("ed-graph", "autolock"),
-        Input("ed-graph", "elements"),
-    )
+    # El enganche de zoom-mapa, grilla y drag-hook se instala solo desde
+    # assets/graph_zoom.js (intervalo autónomo), no desde callbacks de Dash.
 
     def _opciones_guardadas():
         return [{"label": r["nombre"], "value": r["id"]} for r in network_service.listar_guardadas()]

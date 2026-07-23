@@ -170,19 +170,8 @@ def register_callbacks(app, services):
     simulation_service = services["simulation_service"]
     data_sync_service = services["data_sync_service"]
 
-    # Marcas de tamaño constante en pantalla (comportamiento de mapa) al hacer zoom.
-    app.clientside_callback(
-        """
-        function(elements) {
-            setTimeout(function() {
-                if (window.mgInstallMapZoom) { window.mgInstallMapZoom('db-graph'); }
-            }, 120);
-            return window.dash_clientside.no_update;
-        }
-        """,
-        Output("db-graph", "autolock"),
-        Input("db-graph", "elements"),
-    )
+    # El zoom-mapa y la grilla del db-graph se instalan solos desde
+    # assets/graph_zoom.js (intervalo autónomo), no desde un callback de Dash.
 
     # ---- correr simulación ----
     @app.callback(

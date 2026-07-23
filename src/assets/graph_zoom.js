@@ -4,10 +4,19 @@
 // superponían) mientras las marcas conservan su tamaño — a diferencia de escalar
 // una imagen estática, donde nodo y distancia crecen juntos y el solapamiento
 // nunca cambia.
-window.mgInstallMapZoom = function (divId) {
+window.mgInstallMapZoom = function (divId, _tries) {
+    _tries = _tries || 0;
     var div = document.getElementById(divId);
     var cy = div && div._cyreg && div._cyreg.cy;
-    if (!cy) return;
+    // La instancia de Cytoscape puede no estar lista todavía (p. ej. al montar el
+    // grafo al cambiar de pestaña). Reintentar hasta que exista, si no el hook
+    // nunca se instala y el zoom/pan/grilla quedan sin funcionar en esa vista.
+    if (!cy) {
+        if (_tries < 60) {
+            setTimeout(function () { window.mgInstallMapZoom(divId, _tries + 1); }, 100);
+        }
+        return;
+    }
 
     // Tamaños base en píxeles de pantalla (a zoom = 1).
     var BASE = { node: 42, font: 9, border: 2, slack: 4, edge: 4, trafo: 5, edgeFont: 8, textMax: 80 };
@@ -52,3 +61,30 @@ window.mgInstallMapZoom = function (divId) {
     reescalar();
     actualizarGrilla();
 };
+
+// Instalación autónoma (no depende de callbacks de Dash, que no se disparan de
+// forma confiable al montar un grafo al cambiar de pestaña). Un intervalo
+// engancha ambos grafos apenas su instancia de Cytoscape existe, y reengancha
+// tras un re-montaje (nuevo cy sin las banderas). Es idempotente.
+(function () {
+    function ensure() {
+        ['ed-graph', 'db-graph'].forEach(function (id) {
+            var div = document.getElementById(id);
+            var cy = div && div._cyreg && div._cyreg.cy;
+            if (!cy) return;
+            if (!cy._mapHooked) { window.mgInstallMapZoom(id); }
+            // El Editor: al soltar un bus arrastrado, reenviar 'dragfree' como
+            // 'tap' para que se guarde la posición (Input tapNode).
+            if (id === 'ed-graph' && !cy._dragHooked) {
+                cy._dragHooked = true;
+                cy.on('dragfree', 'node', function (e) { e.target.emit('tap'); });
+            }
+        });
+    }
+    function start() { ensure(); setInterval(ensure, 400); }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', start);
+    } else {
+        start();
+    }
+})();
