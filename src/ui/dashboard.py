@@ -10,107 +10,148 @@ from __future__ import annotations
 import dash_cytoscape as cyto
 import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html
+from plotly.subplots import make_subplots
 
-from ui.graph_view import STYLESHEET, net_to_elements
+from ui import theme
+from ui.graph_view import LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements
 
 
-def _kpi(titulo, id_, unidad=""):
+def _kpi(titulo, id_, accent=False):
     return html.Div(
-        [html.Div(titulo, style={"fontSize": "12px", "color": "#555"}),
-         html.Div(["—", html.Span(unidad, style={"fontSize": "12px"})], id=id_,
-                  style={"fontSize": "22px", "fontWeight": "bold"})],
-        style={"flex": "1", "minWidth": "120px", "padding": "10px", "background": "#f5f5f5",
-               "borderRadius": "6px", "textAlign": "center", "margin": "4px"},
+        [html.Div(titulo, className="kpi-label"),
+         html.Div("—", id=id_, className="kpi-value")],
+        className="kpi accent" if accent else "kpi",
     )
 
 
 def _campo(label, id_, value, tipo="number", **kw):
     return html.Div(
-        [html.Label(label, style={"fontSize": "12px", "display": "block"}),
-         dcc.Input(id=id_, type=tipo, value=value, style={"width": "100%"}, **kw)],
-        style={"flex": "1", "minWidth": "90px", "margin": "2px"},
+        [html.Label(label), dcc.Input(id=id_, type=tipo, value=value, **kw)],
+        className="field",
     )
+
+
+def _dropdown(label, id_, options, value):
+    return html.Div(
+        [html.Label(label),
+         dcc.Dropdown(id=id_, options=options, value=value, clearable=False,
+                      className="dash-dropdown")],
+        className="field", style={"minWidth": "150px"},
+    )
+
+
+def _legend():
+    nodes = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
+             for c, t in LEGEND_NODES]
+    status = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
+              for c, t in LEGEND_STATUS]
+    return html.Div(nodes + [html.Span("·", style={"color": "var(--muted)"})] + status, className="legend")
 
 
 def layout():
     return html.Div(
         [
-            html.H3("Dashboard de simulación"),
+            # ---- Controles ----
             html.Div(
                 [
-                    html.Div([html.Label("Tipo de flujo", style={"fontSize": "12px"}),
-                              dcc.Dropdown(id="db-mode", options=[{"label": "Flujo de carga (runpp)", "value": "pp"},
-                                                                  {"label": "Flujo óptimo (runopp)", "value": "opp"}],
-                                           value="pp", clearable=False)],
-                             style={"flex": "1", "minWidth": "180px", "margin": "2px"}),
-                    _campo("Horas", "db-horas", 24, min=1, max=168),
-                    html.Div([html.Label("Tipo de carga", style={"fontSize": "12px"}),
-                              dcc.Dropdown(id="db-tipo", options=[{"label": t.capitalize(), "value": t}
-                                                                  for t in ("residencial", "comercial", "industrial")],
-                                           value="residencial", clearable=False)],
-                             style={"flex": "1", "minWidth": "140px", "margin": "2px"}),
-                    _campo("Región", "db-region", "LITORAL", tipo="text"),
-                    _campo("Lat", "db-lat", -31.4),
-                    _campo("Lon", "db-lon", -60.5),
-                    _campo("SoC inicial %", "db-soc", 50),
-                    html.Button("Correr simulación", id="db-btn-run", n_clicks=0,
-                                style={"alignSelf": "flex-end", "margin": "2px", "height": "36px"}),
-                ],
-                style={"display": "flex", "flexWrap": "wrap", "alignItems": "flex-end", "gap": "4px"},
-            ),
-            html.Div(id="db-status", style={"margin": "6px 0", "fontWeight": "bold", "minHeight": "18px"}),
-            html.Div(
-                [
-                    _kpi("Pérdidas totales", "db-kpi-losses", " MW"),
-                    _kpi("Tensión mín.", "db-kpi-vmin", " pu"),
-                    _kpi("Tensión máx.", "db-kpi-vmax", " pu"),
-                    _kpi("Cargabilidad máx.", "db-kpi-load", " %"),
-                    _kpi("Autosuficiencia", "db-kpi-auto", " %"),
-                    _kpi("Curtailment solar", "db-kpi-curt", " MW"),
-                ],
-                style={"display": "flex", "flexWrap": "wrap"},
-            ),
-            html.Div([html.Label("Hora de la corrida", style={"fontSize": "12px"}),
-                      dcc.Slider(id="db-hora", min=0, max=0, step=1, value=0, marks={0: "0"})],
-                     style={"margin": "10px 4px"}),
-            html.Div(
-                [
-                    html.Div(
-                        cyto.Cytoscape(id="db-graph", layout={"name": "cose", "animate": False},
-                                       style={"width": "100%", "height": "48vh"},
-                                       stylesheet=STYLESHEET, elements=[]),
-                        style={"flex": "1", "minWidth": "340px"},
-                    ),
-                    html.Div(dcc.Graph(id="db-fig-voltage", style={"height": "48vh"}),
-                             style={"flex": "1", "minWidth": "340px"}),
-                ],
-                style={"display": "flex", "flexWrap": "wrap", "gap": "8px"},
-            ),
-            dcc.Graph(id="db-fig-series", style={"height": "34vh"}),
-            # ---- panel de sincronización de datos ----
-            html.Details(
-                [
-                    html.Summary("Sincronizar datos externos"),
+                    html.H3("Configuración de la corrida"),
+                    html.P("Simulá la microgrid hora a hora con perfiles de carga y sol.",
+                           className="card-sub"),
                     html.Div(
                         [
-                            html.Button("SimBench", id="db-sync-simbench", n_clicks=0, style={"margin": "2px"}),
-                            html.Button("NASA POWER (irradiación)", id="db-sync-nasa", n_clicks=0, style={"margin": "2px"}),
-                            html.Button("CAMMESA (demanda)", id="db-sync-cammesa", n_clicks=0, style={"margin": "2px"}),
-                        ]
+                            _dropdown("Tipo de flujo", "db-mode",
+                                      [{"label": "Flujo de carga (runpp)", "value": "pp"},
+                                       {"label": "Flujo óptimo (runopp)", "value": "opp"}], "pp"),
+                            _campo("Horas", "db-horas", 24, min=1, max=168),
+                            _dropdown("Tipo de carga", "db-tipo",
+                                      [{"label": t.capitalize(), "value": t}
+                                       for t in ("residencial", "comercial", "industrial")], "residencial"),
+                            _campo("Región", "db-region", "LITORAL", tipo="text"),
+                            _campo("Lat", "db-lat", -31.4),
+                            _campo("Lon", "db-lon", -60.5),
+                            _campo("SoC inicial %", "db-soc", 50),
+                            html.Div(html.Button("▶  Correr simulación", id="db-btn-run", n_clicks=0,
+                                                 className="btn btn-primary"),
+                                     className="field", style={"flex": "0 0 auto", "justifyContent": "flex-end"}),
+                        ],
+                        className="row",
                     ),
-                    html.Div(id="db-sync-status", style={"fontSize": "13px", "marginTop": "6px"}),
-                ]
+                    dcc.Loading(html.Div(id="db-status", className="status", style={"marginTop": "12px"}),
+                                type="dot", color=theme.SERIES["blue"]),
+                ],
+                className="card",
+            ),
+            # ---- KPIs ----
+            html.Div(
+                [
+                    _kpi("Pérdidas totales", "db-kpi-losses", accent=True),
+                    _kpi("Tensión mín.", "db-kpi-vmin"),
+                    _kpi("Tensión máx.", "db-kpi-vmax"),
+                    _kpi("Cargabilidad máx.", "db-kpi-load"),
+                    _kpi("Autosuficiencia", "db-kpi-auto"),
+                    _kpi("Curtailment solar", "db-kpi-curt"),
+                ],
+                className="kpi-grid", style={"marginBottom": "16px"},
+            ),
+            # ---- Slider de hora ----
+            html.Div(
+                [
+                    html.Div("Hora de la corrida", className="section-title"),
+                    dcc.Slider(id="db-hora", min=0, max=0, step=1, value=0, marks={0: "0"}),
+                ],
+                className="card",
+            ),
+            # ---- Grafo + perfil de tensión ----
+            html.Div(
+                [
+                    html.Div(
+                        html.Div(
+                            [_legend(),
+                             cyto.Cytoscape(id="db-graph", layout={"name": "cose", "animate": False, "padding": 30},
+                                            style={"width": "100%", "height": "46vh"},
+                                            stylesheet=STYLESHEET, elements=[])],
+                            className="graph-frame",
+                        ),
+                    ),
+                    html.Div(
+                        html.Div(dcc.Graph(id="db-fig-voltage", config={"displaylogo": False},
+                                           style={"height": "46vh"}),
+                                 className="graph-frame", style={"padding": "8px"}),
+                    ),
+                ],
+                className="grid-2",
+            ),
+            # ---- Series temporales ----
+            html.Div(
+                html.Div(dcc.Graph(id="db-fig-series", config={"displaylogo": False},
+                                   style={"height": "34vh"}),
+                         className="graph-frame", style={"padding": "8px", "marginTop": "16px"}),
+            ),
+            # ---- Sync de datos ----
+            html.Details(
+                [
+                    html.Summary("🔄  Sincronizar datos externos"),
+                    html.Div(
+                        [
+                            html.P("Descargá series reales para reemplazar los perfiles sintéticos.",
+                                   className="card-sub"),
+                            html.Div(
+                                [html.Button("SimBench", id="db-sync-simbench", n_clicks=0, className="btn btn-sm"),
+                                 html.Button("NASA POWER (irradiación)", id="db-sync-nasa", n_clicks=0, className="btn btn-sm"),
+                                 html.Button("CAMMESA (demanda)", id="db-sync-cammesa", n_clicks=0, className="btn btn-sm")],
+                                className="row",
+                            ),
+                            dcc.Loading(html.Div(id="db-sync-status", className="status", style={"marginTop": "10px"}),
+                                        type="dot", color=theme.SERIES["blue"]),
+                        ],
+                        className="acc-body",
+                    ),
+                ],
+                className="acc", style={"marginTop": "16px"},
             ),
             dcc.Store(id="db-store"),
         ],
-        style={"padding": "8px"},
     )
-
-
-def _fig_vacia(titulo):
-    fig = go.Figure()
-    fig.update_layout(title=titulo, margin=dict(l=40, r=10, t=40, b=30))
-    return fig
 
 
 def register_callbacks(app, services):
@@ -144,7 +185,7 @@ def register_callbacks(app, services):
                 "auto": r.autosufficiency_pct,
                 "curt": r.curtailment_solar_mw,
             } for r in run["resultados"]]
-            return data, f"Corrida completa: {len(data)} instantes (run {run['run_id'][:8]}…)."
+            return data, f"✓ Corrida completa: {len(data)} instantes simulados (run {run['run_id'][:8]}…)."
         except Exception as exc:  # noqa: BLE001
             return None, f"⚠ Error: {exc}"
 
@@ -160,10 +201,9 @@ def register_callbacks(app, services):
     def actualizar(data, hora):
         net = network_service.get_network().net
         if not data:
-            elements = net_to_elements(net)
-            vacio = "—"
-            return (vacio, vacio, vacio, vacio, vacio, vacio, elements,
-                    _fig_vacia("Perfil de tensión"), _fig_vacia("Indicadores por hora"), 0, {0: "0"})
+            return ("—", "—", "—", "—", "—", "—", net_to_elements(net),
+                    theme.empty("Perfil de tensión por nodo"),
+                    theme.empty("Indicadores a lo largo de la corrida"), 0, {0: "0"})
 
         h = min(int(hora or 0), len(data) - 1)
         inst = data[h]
@@ -175,27 +215,55 @@ def register_callbacks(app, services):
 
         elements = net_to_elements(net, voltage_profile=volt, line_loading=load)
 
+        # Perfil de tensión (barras, una serie -> sin leyenda).
         fig_v = go.Figure()
-        fig_v.add_bar(x=[f"Bus {k}" for k in volt], y=list(volt.values()), marker_color="#1565c0")
-        fig_v.add_hline(y=1.05, line_dash="dot", line_color="red")
-        fig_v.add_hline(y=0.95, line_dash="dot", line_color="red")
-        fig_v.update_layout(title=f"Perfil de tensión — hora {h}", yaxis_title="pu",
-                            margin=dict(l=40, r=10, t=40, b=30))
+        colores = [theme.CRITICAL if abs(v - 1) > 0.1 else theme.WARNING if abs(v - 1) > 0.05 else theme.SERIES["blue"]
+                   for v in volt.values()]
+        fig_v.add_bar(x=[f"Bus {k}" for k in volt], y=list(volt.values()),
+                      marker_color=colores, marker_line_width=0,
+                      hovertemplate="%{x}: %{y:.3f} pu<extra></extra>")
+        theme.style(fig_v, f"Perfil de tensión por nodo — hora {h}")
+        fig_v.update_yaxes(title="Tensión [pu]", range=[min(0.9, vmin - 0.02), max(1.1, vmax + 0.02)])
+        for y in (0.95, 1.05):
+            fig_v.add_hline(y=y, line_dash="dot", line_color=theme.CRITICAL, line_width=1,
+                            annotation_text=f"{y:g} pu", annotation_font_size=10,
+                            annotation_font_color=theme.INK)
 
+        # Series por hora: small multiples (una escala por panel, sin doble eje).
         horas = [d["hour"] for d in data]
-        fig_s = go.Figure()
-        fig_s.add_scatter(x=horas, y=[d["losses"] for d in data], name="Pérdidas [MW]", mode="lines+markers")
-        fig_s.add_scatter(x=horas, y=[d["auto"] for d in data], name="Autosuf. [%]", yaxis="y2", mode="lines+markers")
-        fig_s.add_scatter(x=horas, y=[d["curt"] for d in data], name="Curtailment [MW]", mode="lines+markers")
-        fig_s.update_layout(
-            title="Indicadores por hora", margin=dict(l=40, r=40, t=40, b=30),
-            yaxis=dict(title="MW"), yaxis2=dict(title="%", overlaying="y", side="right"),
-            legend=dict(orientation="h"),
-        )
+        fig_s = make_subplots(rows=1, cols=3, shared_xaxes=False,
+                              subplot_titles=("Pérdidas [MW]", "Autosuficiencia [%]", "Curtailment [MW]"),
+                              horizontal_spacing=0.08)
+        fig_s.add_scatter(x=horas, y=[d["losses"] for d in data], mode="lines+markers",
+                          line_color=theme.SERIES["blue"], marker_size=5, name="Pérdidas",
+                          hovertemplate="h%{x}: %{y:.4f} MW<extra></extra>", row=1, col=1)
+        fig_s.add_scatter(x=horas, y=[d["auto"] for d in data], mode="lines+markers",
+                          line_color=theme.SERIES["aqua"], marker_size=5, name="Autosuf.",
+                          hovertemplate="h%{x}: %{y:.1f} %<extra></extra>", row=1, col=2)
+        fig_s.add_scatter(x=horas, y=[d["curt"] for d in data], mode="lines+markers",
+                          line_color=theme.SERIES["orange"], marker_size=5, name="Curtailment",
+                          hovertemplate="h%{x}: %{y:.4f} MW<extra></extra>", row=1, col=3)
+        theme.style(fig_s, "Indicadores a lo largo de la corrida")
+        fig_s.update_layout(showlegend=False)
+        for c in (1, 2, 3):
+            fig_s.update_xaxes(title="hora", gridcolor=theme.GRID, zerolinecolor=theme.BASELINE,
+                               tickfont=dict(color=theme.INK, size=11), title_font=dict(color=theme.INK, size=11),
+                               row=1, col=c)
+            fig_s.update_yaxes(gridcolor=theme.GRID, zerolinecolor=theme.BASELINE,
+                               tickfont=dict(color=theme.INK, size=11), row=1, col=c)
+        for ann in fig_s.layout.annotations:
+            ann.font.color = theme.INK
+            ann.font.size = 12
 
-        marks = {d["hour"]: str(d["hour"]) for d in data if d["hour"] % max(1, len(data) // 12) == 0}
-        return (f"{inst['losses']:.4f} MW", f"{vmin:.3f} pu", f"{vmax:.3f} pu",
-                f"{load_max:.1f} %", f"{inst['auto']:.1f} %", f"{inst['curt']:.4f} MW",
+        step = max(1, len(data) // 12)
+        marks = {d["hour"]: str(d["hour"]) for d in data if d["hour"] % step == 0}
+
+        def val(x, unit):
+            return html.Span([f"{x}", html.Span(unit, className="unit")])
+
+        return (val(f"{inst['losses']:.4f}", " MW"), val(f"{vmin:.3f}", " pu"),
+                val(f"{vmax:.3f}", " pu"), val(f"{load_max:.1f}", " %"),
+                val(f"{inst['auto']:.1f}", " %"), val(f"{inst['curt']:.4f}", " MW"),
                 elements, fig_v, fig_s, len(data) - 1, marks)
 
     # ---- sincronización de datos ----

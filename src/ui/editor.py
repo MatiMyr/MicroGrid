@@ -6,13 +6,12 @@ propios del Editor viven en este archivo.
 """
 from __future__ import annotations
 
-import dash
 import dash_cytoscape as cyto
 from dash import Input, Output, State, ctx, dcc, html
 
 from domain.network_model import Battery, Bus, ExternalGrid, Line, Load, SolarPanel
 from repositories.json_net_repository import NombreDuplicadoError
-from ui.graph_view import STYLESHEET, net_to_elements
+from ui.graph_view import LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements
 
 
 def _num(value, default=0.0):
@@ -31,126 +30,141 @@ def _int(value, default=0):
 
 def _campo(label, id_, value="", tipo="number", **kw):
     return html.Div(
-        [html.Label(label, style={"fontSize": "12px", "display": "block"}),
-         dcc.Input(id=id_, type=tipo, value=value, style={"width": "100%"}, **kw)],
-        style={"flex": "1", "minWidth": "90px", "margin": "2px"},
+        [html.Label(label), dcc.Input(id=id_, type=tipo, value=value, **kw)],
+        className="field",
     )
 
 
 def _fila(children):
-    return html.Div(children, style={"display": "flex", "flexWrap": "wrap", "alignItems": "flex-end", "gap": "4px", "marginBottom": "6px"})
+    return html.Div(children, className="row", style={"marginBottom": "10px"})
+
+
+def _acc(titulo, children, open=False):
+    return html.Details(
+        [html.Summary(titulo), html.Div(children, className="acc-body")],
+        className="acc", open=open,
+    )
+
+
+def _btn(label, id_, primary=False):
+    cls = "btn btn-primary" if primary else "btn"
+    return html.Button(label, id=id_, n_clicks=0, className=cls)
+
+
+def _legend():
+    items = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
+             for c, t in LEGEND_NODES]
+    return html.Div(items, className="legend")
 
 
 def layout():
     return html.Div(
         [
+            # ---- Panel de edición ----
             html.Div(
                 [
-                    html.H3("Editor de red"),
-                    # ---- Fuente ----
-                    html.Details(
+                    html.Div(
                         [
-                            html.Summary("Cargar red"),
-                            _fila([
-                                html.Button("Red de ejemplo", id="ed-btn-ejemplo", n_clicks=0),
+                            html.H3("Editor de red"),
+                            html.P("Cargá, editá y guardá la microgrid. El grafo se actualiza en vivo.",
+                                   className="card-sub"),
+                            _acc("📥  Cargar red", [
+                                _fila([_btn("Red de ejemplo", "ed-btn-ejemplo")]),
+                                _fila([
+                                    _campo("Código SimBench", "ed-simbench-code", "1-LV-rural1--0-no_sw", tipo="text"),
+                                    _btn("Cargar", "ed-btn-simbench"),
+                                ]),
+                                _fila([
+                                    html.Div(dcc.Dropdown(id="ed-guardadas", placeholder="Red guardada…",
+                                                          className="dash-dropdown"),
+                                             className="field", style={"minWidth": "180px"}),
+                                    _btn("Abrir", "ed-btn-guardada"),
+                                ]),
+                            ], open=True),
+                            _acc("✏️  Agregar elementos (gráfico)", [
+                                _fila([
+                                    _campo("Bus vn_kv", "ed-bus-vn", 0.4),
+                                    _campo("Nombre", "ed-bus-name", "", tipo="text"),
+                                    _btn("+ Bus", "ed-btn-bus"),
+                                ]),
+                                _fila([
+                                    _campo("Línea desde", "ed-line-from", 0),
+                                    _campo("hasta", "ed-line-to", 1),
+                                    _campo("largo km", "ed-line-len", 0.1),
+                                    _btn("+ Línea", "ed-btn-line"),
+                                ]),
+                                _fila([
+                                    _campo("Carga bus", "ed-load-bus", 1),
+                                    _campo("p_mw", "ed-load-p", 0.05),
+                                    _campo("q_mvar", "ed-load-q", 0.01),
+                                    _btn("+ Carga", "ed-btn-load"),
+                                ]),
+                                _fila([
+                                    _campo("Solar bus", "ed-sgen-bus", 1),
+                                    _campo("p_mw", "ed-sgen-p", 0.03),
+                                    _btn("+ Solar", "ed-btn-sgen"),
+                                ]),
+                                _fila([
+                                    _campo("Batería bus", "ed-bat-bus", 1),
+                                    _campo("p_mw", "ed-bat-p", 0.02),
+                                    _campo("max_e_mwh", "ed-bat-maxe", 0.05),
+                                    _campo("soc %", "ed-bat-soc", 50),
+                                    _btn("+ Batería", "ed-btn-bat"),
+                                ]),
+                                _fila([
+                                    _campo("Red externa bus", "ed-ext-bus", 0),
+                                    _btn("+ Red externa", "ed-btn-ext"),
+                                ]),
+                                _fila([
+                                    _campo("Quitar tipo", "ed-rm-type", "line", tipo="text"),
+                                    _campo("índice", "ed-rm-index", 0),
+                                    _btn("Quitar", "ed-btn-rm"),
+                                ]),
                             ]),
-                            _fila([
-                                _campo("Código SimBench", "ed-simbench-code", "1-LV-rural1--0-no_sw", tipo="text"),
-                                html.Button("Cargar SimBench", id="ed-btn-simbench", n_clicks=0),
+                            _acc("🐍  Editor de código Python", [
+                                html.P("Disponibles: model, pp, Bus, Line, Load, SolarPanel, Battery, ExternalGrid, Transformer.",
+                                       className="card-sub"),
+                                dcc.Textarea(
+                                    id="ed-code", className="code",
+                                    value="# model.add_bus(Bus(index=3, vn_kv=0.4, name='Nodo 3'))\n# model.add_line(Line(from_bus=2, to_bus=3, length_km=0.1))\n",
+                                    style={"height": "130px"},
+                                ),
+                                html.Div(_btn("Ejecutar código", "ed-btn-code", primary=True),
+                                         style={"marginTop": "8px"}),
                             ]),
-                            _fila([
-                                dcc.Dropdown(id="ed-guardadas", placeholder="Red guardada…", style={"flex": "1", "minWidth": "180px"}),
-                                html.Button("Cargar guardada", id="ed-btn-guardada", n_clicks=0),
+                            _acc("💾  Guardar red", [
+                                _fila([
+                                    _campo("Nombre", "ed-save-name", "Mi red", tipo="text"),
+                                    _btn("Guardar nueva", "ed-btn-save", primary=True),
+                                    _btn("Sobrescribir", "ed-btn-save-changes"),
+                                ]),
                             ]),
+                            html.Div(id="ed-status", className="status", style={"marginTop": "10px"}),
+                            html.Div(html.Pre(id="ed-summary", className="summary"),
+                                     style={"marginTop": "10px"}),
                         ],
-                        open=True,
+                        className="card",
                     ),
-                    # ---- Modo gráfico ----
-                    html.Details(
-                        [
-                            html.Summary("Agregar elementos (modo gráfico)"),
-                            _fila([
-                                _campo("Bus vn_kv", "ed-bus-vn", 0.4),
-                                _campo("Nombre", "ed-bus-name", "", tipo="text"),
-                                html.Button("+ Bus", id="ed-btn-bus", n_clicks=0),
-                            ]),
-                            _fila([
-                                _campo("Línea desde", "ed-line-from", 0),
-                                _campo("hasta", "ed-line-to", 1),
-                                _campo("largo km", "ed-line-len", 0.1),
-                                html.Button("+ Línea", id="ed-btn-line", n_clicks=0),
-                            ]),
-                            _fila([
-                                _campo("Carga bus", "ed-load-bus", 1),
-                                _campo("p_mw", "ed-load-p", 0.05),
-                                _campo("q_mvar", "ed-load-q", 0.01),
-                                html.Button("+ Carga", id="ed-btn-load", n_clicks=0),
-                            ]),
-                            _fila([
-                                _campo("Solar bus", "ed-sgen-bus", 1),
-                                _campo("p_mw", "ed-sgen-p", 0.03),
-                                html.Button("+ Solar", id="ed-btn-sgen", n_clicks=0),
-                            ]),
-                            _fila([
-                                _campo("Batería bus", "ed-bat-bus", 1),
-                                _campo("p_mw", "ed-bat-p", 0.02),
-                                _campo("max_e_mwh", "ed-bat-maxe", 0.05),
-                                _campo("soc %", "ed-bat-soc", 50),
-                                html.Button("+ Batería", id="ed-btn-bat", n_clicks=0),
-                            ]),
-                            _fila([
-                                _campo("Red externa bus", "ed-ext-bus", 0),
-                                html.Button("+ Red externa", id="ed-btn-ext", n_clicks=0),
-                            ]),
-                            _fila([
-                                _campo("Quitar tipo", "ed-rm-type", "line", tipo="text"),
-                                _campo("índice", "ed-rm-index", 0),
-                                html.Button("Quitar", id="ed-btn-rm", n_clicks=0),
-                            ]),
-                        ]
-                    ),
-                    # ---- Modo código ----
-                    html.Details(
-                        [
-                            html.Summary("Editor de código Python"),
-                            html.P("Disponibles: model (NetworkModel), pp, Bus, Line, Load, SolarPanel, Battery, ExternalGrid, Transformer.",
-                                   style={"fontSize": "11px", "color": "#666"}),
-                            dcc.Textarea(
-                                id="ed-code",
-                                value="# Ejemplo:\n# model.add_bus(Bus(index=3, vn_kv=0.4, name='Nodo 3'))\n# model.add_line(Line(from_bus=2, to_bus=3, length_km=0.1))\n",
-                                style={"width": "100%", "height": "120px", "fontFamily": "monospace"},
-                            ),
-                            html.Button("Ejecutar código", id="ed-btn-code", n_clicks=0),
-                        ]
-                    ),
-                    # ---- Guardar ----
-                    html.Details(
-                        [
-                            html.Summary("Guardar red"),
-                            _fila([
-                                _campo("Nombre", "ed-save-name", "Mi red", tipo="text"),
-                                html.Button("Guardar como nueva", id="ed-btn-save", n_clicks=0),
-                                html.Button("Guardar cambios", id="ed-btn-save-changes", n_clicks=0),
-                            ]),
-                        ]
-                    ),
-                    html.Div(id="ed-status", style={"marginTop": "8px", "fontWeight": "bold", "minHeight": "20px"}),
-                    html.Pre(id="ed-summary", style={"fontSize": "12px", "background": "#f5f5f5", "padding": "8px", "borderRadius": "4px"}),
                 ],
-                style={"flex": "1", "minWidth": "340px", "maxWidth": "460px", "padding": "8px", "overflowY": "auto", "maxHeight": "82vh"},
             ),
+            # ---- Grafo ----
             html.Div(
-                cyto.Cytoscape(
-                    id="ed-graph",
-                    layout={"name": "cose", "animate": False},
-                    style={"width": "100%", "height": "80vh"},
-                    stylesheet=STYLESHEET,
-                    elements=[],
+                html.Div(
+                    [
+                        _legend(),
+                        cyto.Cytoscape(
+                            id="ed-graph",
+                            layout={"name": "cose", "animate": False, "padding": 30},
+                            style={"width": "100%", "height": "74vh"},
+                            stylesheet=STYLESHEET,
+                            elements=[],
+                        ),
+                    ],
+                    className="graph-frame",
                 ),
-                style={"flex": "2", "minWidth": "400px"},
             ),
         ],
-        style={"display": "flex", "flexWrap": "wrap", "gap": "10px"},
+        className="grid-2",
     )
 
 

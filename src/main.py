@@ -13,7 +13,7 @@ Luego abrir http://127.0.0.1:8050 en el navegador.
 from __future__ import annotations
 
 import dash
-from dash import dcc, html
+from dash import Input, Output, dcc, html
 
 from app.data_sync_service import DataSyncService
 from app.network_service import NetworkService
@@ -53,22 +53,88 @@ def build_services() -> dict:
     }
 
 
+# Restaura el tema guardado antes del primer render (evita el parpadeo).
+_INDEX = """<!DOCTYPE html>
+<html>
+    <head>
+        {%metas%}
+        <title>{%title%}</title>
+        {%favicon%}
+        {%css%}
+        <script>
+          (function () {
+            try {
+              var t = localStorage.getItem('mg-theme');
+              if (t) { document.documentElement.setAttribute('data-theme', t); }
+            } catch (e) {}
+          })();
+        </script>
+    </head>
+    <body>
+        {%app_entry%}
+        <footer>{%config%}{%scripts%}{%renderer%}</footer>
+    </body>
+</html>"""
+
+
+def _header():
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Div("⚡", className="logo"),
+                    html.Div([
+                        html.H1("Smart Microgrid Argentina"),
+                        html.P("Simulación de microgrids de baja tensión · datos argentinos",
+                               className="sub"),
+                    ]),
+                ],
+                className="app-brand",
+            ),
+            html.Button("🌙  Oscuro", id="theme-toggle", className="theme-toggle", n_clicks=0),
+        ],
+        className="app-header",
+    )
+
+
 def create_app() -> dash.Dash:
     app = dash.Dash(__name__, suppress_callback_exceptions=True)
     app.title = "Smart Microgrid Argentina"
+    app.index_string = _INDEX
     services = build_services()
 
     app.layout = html.Div(
         [
-            html.H2("⚡ Smart Microgrid Argentina",
-                    style={"margin": "8px", "color": "#1565c0"}),
-            dcc.Tabs(
-                [
-                    dcc.Tab(label="Editor de red", children=editor.layout()),
-                    dcc.Tab(label="Dashboard", children=dashboard.layout()),
-                ]
+            _header(),
+            html.Div(
+                dcc.Tabs(
+                    className="tab-bar", parent_className="tab-parent",
+                    children=[
+                        dcc.Tab(label="Editor de red", children=editor.layout(),
+                                className="custom-tab", selected_className="custom-tab--selected"),
+                        dcc.Tab(label="Dashboard", children=dashboard.layout(),
+                                className="custom-tab", selected_className="custom-tab--selected"),
+                    ],
+                ),
+                className="app-tabs",
             ),
         ]
+    )
+
+    app.clientside_callback(
+        """
+        function(n) {
+            if (!n) { return window.dash_clientside.no_update; }
+            var root = document.documentElement;
+            var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+            root.setAttribute('data-theme', next);
+            try { localStorage.setItem('mg-theme', next); } catch (e) {}
+            return next === 'dark' ? '☀\\uFE0F  Claro' : '🌙  Oscuro';
+        }
+        """,
+        Output("theme-toggle", "children"),
+        Input("theme-toggle", "n_clicks"),
+        prevent_initial_call=True,
     )
 
     editor.register_callbacks(app, services)
