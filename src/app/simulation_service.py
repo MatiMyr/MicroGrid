@@ -22,9 +22,9 @@ class SimulationService:
     """
 
     _TABLAS_INPUT = ["bus", "line", "trafo", "load", "sgen", "storage", "ext_grid"]
-    # Columnas que no son parte de la identidad eléctrica de la red: la posición
-    # gráfica y el estado por hora (escala/SoC que fija la simulación).
-    _SIG_EXCLUDE = {"geo", "scaling", "soc_percent"}
+    # La firma incluye TODOS los campos de la red (incluida la posición gráfica):
+    # cualquier cambio en el editor debe marcar el Dashboard como desactualizado.
+    _SIG_EXCLUDE: set[str] = set()
 
     def __init__(
         self,
@@ -39,12 +39,11 @@ class SimulationService:
         self.last_run_signature: Optional[str] = None
 
     def network_signature(self, net=None) -> str:
-        """Hash de la identidad eléctrica de la red (topología + parámetros).
+        """Hash de todo el estado de la red (incluida la posición de los buses).
 
-        Excluye la posición gráfica y el estado por hora, de modo que mover un
-        bus o simular no cambia la firma, pero sí lo hace agregar/quitar/editar
-        un elemento eléctrico. Sirve para saber si la red del editor difiere de la
-        que refleja el Dashboard.
+        Cualquier cambio en el editor —agregar/quitar/editar un elemento o mover
+        un bus— altera la firma. Sirve para saber si la red del editor difiere de
+        la que refleja el Dashboard.
         """
         net = net if net is not None else self.network_service.get_network().net
         payload: dict = {}
