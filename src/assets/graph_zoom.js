@@ -41,8 +41,13 @@ window.mgInstallMapZoom = function (divId) {
 
     if (!cy._mapHooked) {
         cy._mapHooked = true;
+        // El tamaño de las marcas depende del zoom.
         cy.on('zoom', function () { reescalar(); actualizarGrilla(); });
-        cy.on('pan', actualizarGrilla);
+        // La grilla debe seguir el viewport en CADA frame de pan/zoom. 'render'
+        // se dispara por frame durante el paneo y no genera loop (solo toca CSS,
+        // no el estado de cytoscape). 'layoutstop' cubre el fit inicial.
+        cy.on('render pan', actualizarGrilla);
+        cy.on('layoutstop', function () { reescalar(); actualizarGrilla(); });
     }
     reescalar();
     actualizarGrilla();
