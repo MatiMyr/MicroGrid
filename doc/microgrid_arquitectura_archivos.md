@@ -18,6 +18,7 @@ mimicrogrid/
 │   └── profile_builder.py
 ├── repositories/
 │   ├── json_net_repository.py
+│   ├── json_simbench_repository.py
 │   ├── json_simulation_repository.py
 │   ├── json_demanda_repository.py
 │   └── json_irradiacion_repository.py
@@ -29,6 +30,7 @@ mimicrogrid/
 ```
 data/
 ├── redes/              ← json_net_repository.py
+│   └── simbench/       ← json_simbench_repository.py
 ├── resultados/         ← json_simulation_repository.py
 └── cache/
     ├── cammesa/        ← json_demanda_repository.py
@@ -147,14 +149,16 @@ Coordina todo lo que tiene que pasar para correr una simulación: busca los dato
 #### `data_sync_service.py`
 **Módulo conceptual:** Sincronizador de Datos
 
-Mantiene actualizados los datos externos sin que el usuario tenga que hacerlo manualmente. Se conecta a CAMMESA y descarga los datos de demanda del mercado eléctrico argentino que aún no están en el caché local. Consulta la API de NASA para obtener los datos de irradiación solar de la zona que se está simulando. Una vez que tiene los datos nuevos, los guarda en los repositorios correspondientes. Puede correrse automáticamente según un horario o ser disparado a mano desde la UI.
+Mantiene actualizados los datos externos sin que el usuario tenga que hacerlo manualmente. Se conecta a CAMMESA y descarga los datos de demanda del mercado eléctrico argentino que aún no están en el caché local. Consulta la API de NASA para obtener los datos de irradiación solar de la zona que se está simulando. Trae del paquete SimBench las redes base que todavía no están en el caché local. Una vez que tiene los datos nuevos, los guarda en los repositorios correspondientes. Puede correrse automáticamente según un horario o ser disparado a mano desde la UI.
 
 | Tipo | Archivo | Descripción |
 |---|---|---|
 | Escribe | `json_demanda_repository.py` | Guarda los datos nuevos de CAMMESA que acaba de descargar |
 | Escribe | `json_irradiacion_repository.py` | Guarda los datos nuevos de irradiación solar que acaba de descargar |
+| Escribe | `json_simbench_repository.py` | Guarda las redes SimBench nuevas que acaba de traer del paquete |
 | HTTP externo | CAMMESA | Descarga los datos de demanda horaria del mercado eléctrico argentino |
 | HTTP externo | NASA POWER API | Pide los datos de irradiación solar para las coordenadas de la zona que se simula |
+| Paquete Python | SimBench | Obtiene las redes base de referencia instaladas localmente |
 
 ---
 
@@ -235,6 +239,18 @@ Guarda y recupera configuraciones de red en archivos JSON bajo `data/redes/`. Ca
 | ------- | -------------------- | ----------------------------------------------- |
 | Escribe | `network_service.py` | Guarda los datos de la red cargada en el editor |
 | Lee     | `network_service.py` | Obtiene del repo una red guardada previamente   |
+
+---
+
+#### `json_simbench_repository.py`
+**Módulo conceptual:** SimBench Repo
+
+Cachea localmente en archivos JSON bajo `data/redes/simbench/` las redes base traídas de SimBench, para no volver a descargarlas cada vez que se necesitan como punto de partida de una simulación. Actúa como caché de la [fuente externa SimBench](#simbench--datosgobar): cuando alguien pide una red base por su código, devuelve la versión ya guardada; cuando `data_sync_service.py` trae una red nueva desde el paquete SimBench, la persiste. Cada red se serializa con `pp.to_json` y se deserializa con `pp.from_json`, preservando la topología y los parámetros eléctricos sin transformaciones adicionales — igual que `json_net_repository.py`. A diferencia de este último, las redes SimBench son de referencia: se identifican por su código de benchmark (no por un id/nombre editable por el usuario) y no se sobrescriben en runtime.
+
+| Tipo    | Archivo                | Descripción                                                             |
+| ------- | ---------------------- | ----------------------------------------------------------------------- |
+| Lee     | `network_service.py`   | Obtiene la red base de SimBench cacheada como punto de partida          |
+| Escribe | `data_sync_service.py` | Recibe y persiste las redes SimBench nuevas descargadas del paquete     |
 
 ---
 
