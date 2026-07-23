@@ -24,6 +24,7 @@ window.mgInstallMapZoom = function (divId) {
                 'text-max-width': (BASE.textMax / z)
             });
             cy.nodes('.slack').style({ 'border-width': BASE.slack / z });
+            cy.nodes('.sel').style({ 'border-width': 6 / z, 'border-color': '#2a78d6', 'overlay-padding': 8 / z });
             cy.edges().style({ 'width': BASE.edge / z, 'font-size': BASE.edgeFont / z });
             cy.edges('.trafo').style({ 'width': BASE.trafo / z });
         });

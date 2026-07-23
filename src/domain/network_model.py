@@ -99,6 +99,19 @@ class NetworkModel:
             in_service=ext_grid.in_service,
         )
 
+    def set_field(self, table: str, index: int, field: str, value) -> None:
+        """Asigna un parámetro a un elemento existente (edición puntual)."""
+        df = getattr(self.net, table, None)
+        if df is None or index not in df.index or field not in df.columns:
+            return
+        if field == "name":
+            df.at[index, field] = None if value in (None, "") else str(value)
+        else:
+            try:
+                df.at[index, field] = float(value)
+            except (TypeError, ValueError):
+                pass
+
     def remove_bus(self, bus_index: int) -> None:
         pp.drop_buses(self.net, buses=[bus_index], drop_elements=True)
 

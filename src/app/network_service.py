@@ -39,6 +39,8 @@ class NetworkService:
         self.model = model or self._build_sample_network()
         # Id estable de la red actual si proviene del repositorio (None si es nueva).
         self.red_id: Optional[str] = None
+        # Bus seleccionado en el panel de detalle (None si no hay ninguno).
+        self.selected_bus: Optional[int] = None
 
     # ---- acceso ----------------------------------------------------------
     def get_network(self) -> NetworkModel:
@@ -138,6 +140,73 @@ class NetworkService:
 
     def listar_guardadas(self) -> list[dict]:
         return self.net_repo.listar()
+
+    # ---- detalle y edición por bus (panel estilo mapa) -------------------
+    # Campos editables por tipo de elemento.
+    CAMPOS = {
+        "bus": ["name", "vn_kv"],
+        "load": ["name", "p_mw", "q_mvar", "scaling"],
+        "sgen": ["name", "p_mw", "q_mvar", "scaling"],
+        "storage": ["name", "p_mw", "q_mvar", "max_e_mwh", "soc_percent", "scaling"],
+        "ext_grid": ["name", "vm_pu", "va_degree"],
+    }
+
+    def detalle_bus(self, bus_idx: int) -> Optional[dict]:
+        """Devuelve los datos del bus y de todos los elementos conectados a él."""
+        net = self.model.net
+        if bus_idx not in net.bus.index:
+            return None
+
+        def _nombre(df, i):
+            nom = df.at[i, "name"] if "name" in df.columns else None
+            return "" if nom is None or str(nom) == "nan" else str(nom)
+
+        def _campos(tabla):
+            df = getattr(net, tabla)
+            filas = []
+            for i in df.index[df["bus"] == bus_idx]:
+                fila = {"idx": int(i), "name": _nombre(df, i)}
+                for c in self.CAMPOS[tabla]:
+                    if c != "name" and c in df.columns:
+                        fila[c] = round(float(df.at[i, c]), 6)
+                filas.append(fila)
+            return filas
+
+        pos = self.model.get_bus_position(bus_idx)
+        return {
+            "idx": int(bus_idx),
+            "name": _nombre(net.bus, bus_idx),
+            "vn_kv": round(float(net.bus.at[bus_idx, "vn_kv"]), 6),
+            "x": round(pos[0], 4) if pos else 0.0,
+            "y": round(pos[1], 4) if pos else 0.0,
+            "load": _campos("load"),
+            "sgen": _campos("sgen"),
+            "storage": _campos("storage"),
+            "ext_grid": _campos("ext_grid"),
+        }
+
+    def editar_campo(self, kind: str, idx: int, field: str, value) -> None:
+        """Edita un parámetro de un bus o de un elemento conectado."""
+        tabla = "bus" if kind == "bus" else kind
+        self.model.set_field(tabla, idx, field, value)
+
+    def mover_bus(self, bus_idx: int, x: float, y: float) -> None:
+        self.model.set_bus_position(bus_idx, x, y)
+
+    def agregar_en_bus(self, kind: str, bus_idx: int) -> int:
+        """Agrega un elemento nuevo con valores por defecto al bus dado."""
+        constructores = {
+            "load": lambda: self.agregar(Load(bus=bus_idx, p_mw=0.01, q_mvar=0.0, name="Carga")),
+            "sgen": lambda: self.agregar(SolarPanel(bus=bus_idx, p_mw=0.01, q_mvar=0.0, name="Solar")),
+            "storage": lambda: self.agregar(
+                Battery(bus=bus_idx, p_mw=0.01, max_e_mwh=0.02, soc_percent=50.0, name="Batería")
+            ),
+            "ext_grid": lambda: self.agregar(ExternalGrid(bus=bus_idx, vm_pu=1.0, name="Red externa")),
+        }
+        return constructores[kind]()
+
+    def quitar_elemento(self, kind: str, idx: int) -> None:
+        self.eliminar(kind, idx)
 
     # ---- generación de código editable -----------------------------------
     def generar_codigo(self) -> str:

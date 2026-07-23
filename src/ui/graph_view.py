@@ -62,6 +62,7 @@ def net_to_elements(
     voltage_profile: Optional[Dict[int, float]] = None,
     line_loading: Optional[Dict[int, float]] = None,
     editable: bool = False,
+    selected: Optional[int] = None,
 ) -> list[dict]:
     """Devuelve la lista de elementos (nodos y aristas) para ``cyto.Cytoscape``.
 
@@ -108,10 +109,14 @@ def net_to_elements(
             label = etiqueta
         if badges:
             label = f"{label}\n{badges}"
-        es_slack = conteos["ext_grid"].get(bus_idx, 0) > 0
+        clases = ["bus"]
+        if conteos["ext_grid"].get(bus_idx, 0) > 0:
+            clases.append("slack")
+        if selected is not None and bus_idx == int(selected):
+            clases.append("sel")
         el = {
             "data": {"id": f"b{bus_idx}", "label": label, "color": color},
-            "classes": "bus slack" if es_slack else "bus",
+            "classes": " ".join(clases),
             "grabbable": bool(editable),
         }
         pos = _bus_xy(net, idx)
@@ -175,6 +180,10 @@ STYLESHEET = [
     },
     # Bus con red externa (slack): anillo dorado distintivo.
     {"selector": "node.slack", "style": {"border-width": 4, "border-color": "#eda100"}},
+    # Bus seleccionado: halo azul resaltado.
+    {"selector": "node.sel", "style": {"border-width": 6, "border-color": "#2a78d6",
+                                       "overlay-color": "#2a78d6", "overlay-opacity": 0.18,
+                                       "overlay-padding": 8}},
     {"selector": "edge.line", "style": {"line-color": "data(color)", "width": 4, "label": "data(label)", "font-size": "8px", "color": "#898781", "curve-style": "bezier", "text-rotation": "autorotate"}},
     {"selector": "edge.trafo", "style": {"line-color": "#4a3aa7", "width": 5, "label": "data(label)", "line-style": "dashed", "font-size": "8px", "color": "#898781"}},
     {"selector": "node:selected", "style": {"border-width": 4, "border-color": "#2a78d6"}},

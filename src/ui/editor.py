@@ -7,7 +7,7 @@ propios del Editor viven en este archivo.
 from __future__ import annotations
 
 import dash_cytoscape as cyto
-from dash import Input, Output, State, ctx, dcc, html
+from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
 from domain.network_model import Battery, Bus, ExternalGrid, Line, Load, SolarPanel
 from repositories.json_net_repository import NombreDuplicadoError
@@ -69,6 +69,79 @@ def _legend():
     return html.Div(nodos + badges + [sep] + status, className="legend")
 
 
+# ---- panel de detalle por bus (estilo mapa) ----------------------------
+# Campos numéricos editables por tipo de elemento conectado.
+_DET_CAMPOS = {
+    "load": ["p_mw", "q_mvar", "scaling"],
+    "sgen": ["p_mw", "q_mvar", "scaling"],
+    "storage": ["p_mw", "q_mvar", "max_e_mwh", "soc_percent", "scaling"],
+    "ext_grid": ["vm_pu", "va_degree"],
+}
+_DET_ETIQ = {"load": ("Cargas", "🏠"), "sgen": ("Solar", "☀"),
+             "storage": ("Baterías", "🔋"), "ext_grid": ("Red externa", "🔌")}
+
+
+def _dfield(label, id_dict, value, tipo="number"):
+    return html.Div([html.Label(label), dcc.Input(id=id_dict, type=tipo, value=value)],
+                    className="field")
+
+
+def _detail_panel():
+    return html.Div(
+        [
+            html.Div(
+                [html.Button("← Volver", id="edd-back", className="btn btn-sm"),
+                 html.Button("🗑 Borrar bus", id="edd-delbus", className="btn btn-sm",
+                             style={"color": "var(--critical)", "borderColor": "var(--critical)"})],
+                className="row", style={"justifyContent": "space-between"},
+            ),
+            html.H3(id="edd-title", style={"marginTop": "10px"}),
+            html.Div(id="edd-body"),
+            html.Div(html.Button("Aplicar cambios", id="edd-apply", className="btn btn-primary"),
+                     style={"marginTop": "14px"}),
+            html.Div(id="edd-status", className="status", style={"marginTop": "10px"}),
+        ],
+        id="ed-detail-panel", style={"display": "none"},
+    )
+
+
+def _detail_body(det):
+    bidx = det["idx"]
+    hijos = [
+        html.Div("Bus", className="section-title"),
+        _fila([
+            _dfield("Nombre", {"role": "detf", "kind": "bus", "idx": bidx, "field": "name"}, det["name"], "text"),
+            _dfield("vn_kv", {"role": "detf", "kind": "bus", "idx": bidx, "field": "vn_kv"}, det["vn_kv"]),
+        ]),
+        _fila([
+            _dfield("Pos X", {"role": "detf", "kind": "pos", "idx": bidx, "field": "x"}, det["x"]),
+            _dfield("Pos Y", {"role": "detf", "kind": "pos", "idx": bidx, "field": "y"}, det["y"]),
+        ]),
+    ]
+    for kind, (titulo, emoji) in _DET_ETIQ.items():
+        hijos.append(html.Div(
+            [html.Span(f"{emoji}  {titulo}", className="section-title", style={"margin": 0}),
+             html.Button("＋ Agregar", id={"role": "detadd", "kind": kind}, className="btn btn-sm")],
+            className="row", style={"justifyContent": "space-between", "marginTop": "12px"},
+        ))
+        if not det[kind]:
+            hijos.append(html.Div("Sin elementos.", className="card-sub"))
+        for el in det[kind]:
+            campos = [_dfield("Nombre", {"role": "detf", "kind": kind, "idx": el["idx"], "field": "name"},
+                              el.get("name", ""), "text")]
+            for f in _DET_CAMPOS[kind]:
+                campos.append(_dfield(f, {"role": "detf", "kind": kind, "idx": el["idx"], "field": f},
+                                      el.get(f, 0.0)))
+            campos.append(html.Div(
+                html.Button("🗑", id={"role": "detdel", "kind": kind, "idx": el["idx"]},
+                            className="btn btn-sm", style={"color": "var(--critical)"}),
+                className="field", style={"flex": "0 0 auto", "justifyContent": "flex-end"}))
+            hijos.append(html.Div(campos, className="row",
+                                  style={"borderLeft": "2px solid var(--accent)", "paddingLeft": "8px",
+                                         "marginBottom": "8px"}))
+    return hijos
+
+
 def layout():
     return html.Div(
         [
@@ -77,8 +150,9 @@ def layout():
                 [
                     html.Div(
                         [
+                          html.Div(id="ed-main-panel", children=[
                             html.H3("Editor de red"),
-                            html.P("Cargá, editá y guardá la microgrid. El grafo se actualiza en vivo.",
+                            html.P("Cargá, editá y guardá la microgrid. Tocá un bus en el grafo para ver y editar sus datos.",
                                    className="card-sub"),
                             _acc("📥  Cargar red", [
                                 _fila([_btn("Red de ejemplo", "ed-btn-ejemplo")]),
@@ -155,6 +229,8 @@ def layout():
                             html.Div(id="ed-status", className="status", style={"marginTop": "10px"}),
                             html.Div(html.Pre(id="ed-summary", className="summary"),
                                      style={"marginTop": "10px"}),
+                          ]),
+                          _detail_panel(),
                         ],
                         className="card",
                     ),
@@ -244,7 +320,6 @@ def register_callbacks(app, services):
         Input("ed-btn-code-refresh", "n_clicks"),
         Input("ed-btn-save", "n_clicks"),
         Input("ed-btn-save-changes", "n_clicks"),
-        Input("ed-graph", "tapNode"),
         State("ed-simbench-code", "value"),
         State("ed-guardadas", "value"),
         State("ed-bus-vn", "value"), State("ed-bus-name", "value"),
@@ -258,7 +333,7 @@ def register_callbacks(app, services):
         State("ed-save-name", "value"),
     )
     def actualizar(_e, _sb, _g, _bus, _line, _load, _sgen, _bat, _ext, _rm, _code, _coderef, _save, _savech,
-                   tap_node, simbench_code, guardada_id,
+                   simbench_code, guardada_id,
                    bus_vn, bus_name, line_from, line_to, line_len,
                    load_bus, load_p, load_q, sgen_bus, sgen_p,
                    bat_bus, bat_p, bat_maxe, bat_soc, ext_bus,
@@ -304,14 +379,6 @@ def register_callbacks(app, services):
                 status = "Código ejecutado."
             elif disparador == "ed-btn-code-refresh":
                 status = "Código regenerado desde la red actual."
-            elif disparador == "ed-graph" and tap_node:
-                nid = (tap_node.get("data") or {}).get("id", "")
-                pos = tap_node.get("position") or {}
-                if nid.startswith("b") and nid[1:].isdigit() and "x" in pos:
-                    bus_idx = int(nid[1:])
-                    gx, gy = pixel_to_geo(pos["x"], pos["y"])
-                    network_service.get_network().set_bus_position(bus_idx, gx, gy)
-                    status = f"Posición del bus {bus_idx} guardada ({gx}, {gy})."
             elif disparador == "ed-btn-save":
                 rid = network_service.guardar((save_name or "Mi red").strip())
                 status = f"Red guardada (id {rid[:8]}…)."
@@ -323,8 +390,109 @@ def register_callbacks(app, services):
         except Exception as exc:  # noqa: BLE001
             status = f"⚠ Error: {exc}"
 
+        # Acciones que rehacen la topología invalidan la selección previa.
+        if disparador in ("ed-btn-ejemplo", "ed-btn-simbench", "ed-btn-guardada", "ed-btn-rm", "ed-btn-code"):
+            network_service.selected_bus = None
+
         modelo = network_service.get_network()
         modelo.ensure_positions()
         net = modelo.net
-        return (net_to_elements(net, editable=True), _resumen(net), status,
-                _opciones_guardadas(), network_service.generar_codigo())
+        return (net_to_elements(net, editable=True, selected=network_service.selected_bus),
+                _resumen(net), status, _opciones_guardadas(), network_service.generar_codigo())
+
+    # ---- panel de detalle por bus (estilo mapa) --------------------------
+    _SHOW, _HIDE = {"display": "block"}, {"display": "none"}
+
+    def _refresh_graph():
+        modelo = network_service.get_network()
+        modelo.ensure_positions()
+        return net_to_elements(modelo.net, editable=True, selected=network_service.selected_bus)
+
+    @app.callback(
+        Output("ed-main-panel", "style"),
+        Output("ed-detail-panel", "style"),
+        Output("edd-title", "children"),
+        Output("edd-body", "children"),
+        Output("edd-status", "children"),
+        Output("ed-graph", "elements", allow_duplicate=True),
+        Output("ed-code", "value", allow_duplicate=True),
+        Output("ed-summary", "children", allow_duplicate=True),
+        Input("ed-graph", "tapNode"),
+        Input("edd-back", "n_clicks"),
+        Input("edd-apply", "n_clicks"),
+        Input("edd-delbus", "n_clicks"),
+        Input({"role": "detdel", "kind": ALL, "idx": ALL}, "n_clicks"),
+        Input({"role": "detadd", "kind": ALL}, "n_clicks"),
+        State({"role": "detf", "kind": ALL, "idx": ALL, "field": ALL}, "value"),
+        prevent_initial_call=True,
+    )
+    def detalle(tap_node, _back, _apply, _delbus, _dels, _adds, _field_values):
+        disp = ctx.triggered_id
+        ns = network_service
+        nada = (no_update,) * 8
+
+        def _resumen_actual():
+            return _resumen(ns.get_network().net)
+
+        def abrir(bus_idx, status=""):
+            det = ns.detalle_bus(bus_idx)
+            if det is None:
+                return cerrar()
+            ns.selected_bus = bus_idx
+            titulo = f"Bus {bus_idx} — {det['name'] or 'sin nombre'}"
+            return (_HIDE, _SHOW, titulo, _detail_body(det), status,
+                    _refresh_graph(), ns.generar_codigo(), _resumen_actual())
+
+        def cerrar():
+            ns.selected_bus = None
+            return (_SHOW, _HIDE, "", [], "", _refresh_graph(), ns.generar_codigo(), _resumen_actual())
+
+        # Selección o arrastre de un bus en el grafo.
+        if disp == "ed-graph":
+            if not tap_node:
+                return nada
+            nid = (tap_node.get("data") or {}).get("id", "")
+            pos = tap_node.get("position") or {}
+            if not (nid.startswith("b") and nid[1:].isdigit()):
+                return nada
+            bus_idx = int(nid[1:])
+            if "x" in pos:
+                gx, gy = pixel_to_geo(pos["x"], pos["y"])
+                ns.get_network().set_bus_position(bus_idx, gx, gy)
+            return abrir(bus_idx)
+
+        if disp == "edd-back":
+            return cerrar()
+
+        sel = ns.selected_bus
+        if sel is None:
+            return nada
+
+        try:
+            if disp == "edd-delbus":
+                ns.eliminar("bus", sel)
+                return cerrar()
+            if disp == "edd-apply":
+                pos = {}
+                for est in (ctx.states_list[0] or []):
+                    cid, val = est["id"], est.get("value")
+                    if cid["kind"] == "pos":
+                        pos[cid["field"]] = val
+                    else:
+                        ns.editar_campo(cid["kind"], cid["idx"], cid["field"], val)
+                if pos:
+                    ns.mover_bus(sel, _num(pos.get("x"), 0.0), _num(pos.get("y"), 0.0))
+                return abrir(sel, "Cambios aplicados.")
+            if isinstance(disp, dict) and disp.get("role") == "detdel":
+                ns.quitar_elemento(disp["kind"], disp["idx"])
+                return abrir(sel, "Elemento eliminado.")
+            if isinstance(disp, dict) and disp.get("role") == "detadd":
+                ns.agregar_en_bus(disp["kind"], sel)
+                return abrir(sel, "Elemento agregado.")
+        except Exception as exc:  # noqa: BLE001
+            det = ns.detalle_bus(sel)
+            titulo = f"Bus {sel} — {det['name'] if det else ''}"
+            return (_HIDE, _SHOW, titulo, _detail_body(det) if det else [], f"⚠ Error: {exc}",
+                    _refresh_graph(), ns.generar_codigo(), _resumen_actual())
+
+        return nada
