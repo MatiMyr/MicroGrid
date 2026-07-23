@@ -136,46 +136,123 @@ class NetworkService:
 
     # ---- generación de código editable -----------------------------------
     def generar_codigo(self) -> str:
-        """Genera un script Python que refleja la red actual, elemento por elemento.
+        """Genera un script Python que **reconstruye** la red actual desde cero.
 
-        El script usa asignaciones directas sobre las tablas de pandapower
-        (``net.load.at[i, 'p_mw'] = …``) para que el usuario edite parámetros de
-        elementos ya cargados y los aplique con "Ejecutar código". Es robusto
-        para cualquier red (incluidas las de SimBench) porque no reconstruye la
-        red desde cero. Para agregar elementos nuevos siguen disponibles
-        ``model.add_bus(Bus(...))`` y el resto de las entidades del dominio.
+        El script es la fuente de verdad de la red: al ejecutarlo se arma un
+        ``NetworkModel`` nuevo con exactamente los elementos que figuran. Así el
+        usuario puede editar parámetros y nombres, **borrar** un elemento
+        (eliminando su línea) o agregar uno nuevo, y "Ejecutar código" lo aplica.
+        Las posiciones ``set_bus_position`` se reflejan en el grafo y se
+        actualizan al arrastrar los nodos en el Editor.
+
+        Líneas y transformadores se emiten con ``create_*_from_parameters`` (con
+        sus valores eléctricos reales) para que cualquier red se reconstruya sin
+        depender de que su ``std_type`` esté en la librería de tipos.
         """
+        self.model.ensure_positions()
         net = self.model.net
         L: list[str] = [
-            "# Red actual — editá los valores y tocá «Ejecutar código» para aplicarlos.",
-            "# Para agregar elementos: model.add_load(Load(bus=1, p_mw=0.05)), etc.",
+            "# Este código reconstruye la red. Es la fuente de verdad:",
+            "# editá valores/nombres, borrá una línea para quitar un elemento,",
+            "# o agregá elementos nuevos. «Ejecutar código» aplica todo.",
+            "model = NetworkModel()",
             "net = model.net",
             "",
         ]
 
-        def bloque(titulo: str, tabla: str, df, cols: list[str]) -> None:
-            if df is None or not len(df):
-                return
-            L.append(f"# --- {titulo} ({len(df)}) ---")
-            presentes = [c for c in cols if c in df.columns]
-            for idx in df.index:
-                vals = ", ".join(repr(round(float(df.at[idx, c]), 6)) for c in presentes)
-                cols_txt = ", ".join(f"'{c}'" for c in presentes)
-                comentario = ""
-                if "name" in df.columns:
-                    nom = df.at[idx, "name"]
-                    if nom is not None and str(nom) != "nan":
-                        comentario = f"  # {nom}"
-                L.append(f"net.{tabla}.loc[{idx}, [{cols_txt}]] = [{vals}]{comentario}")
+        def repr_nom(df, idx) -> str:
+            if "name" in df.columns:
+                nom = df.at[idx, "name"]
+                if nom is not None and str(nom) != "nan":
+                    return repr(str(nom))
+            return "None"
+
+        def num(df, idx, col, default=0.0):
+            if col in df.columns:
+                try:
+                    return round(float(df.at[idx, col]), 6)
+                except (TypeError, ValueError):
+                    return default
+            return default
+
+        # --- Buses ---
+        L.append("# --- Buses ---")
+        for i in net.bus.index:
+            L.append(f"model.add_bus(Bus(index={int(i)}, vn_kv={num(net.bus, i, 'vn_kv', 0.4)}, "
+                     f"name={repr_nom(net.bus, i)}, type={repr(str(net.bus.at[i, 'type']))}))")
+        L.append("")
+
+        # --- Posiciones (x, y) ---
+        L.append("# --- Posiciones (x, y): editables y arrastrables en el grafo ---")
+        for i, (x, y) in self.model.bus_positions().items():
+            L.append(f"model.set_bus_position({int(i)}, {x}, {y})")
+        L.append("")
+
+        # --- Red externa ---
+        if len(net.ext_grid):
+            L.append("# --- Red externa ---")
+            for i in net.ext_grid.index:
+                L.append(f"model.add_ext_grid(ExternalGrid(bus={int(net.ext_grid.at[i, 'bus'])}, "
+                         f"vm_pu={num(net.ext_grid, i, 'vm_pu', 1.0)}, "
+                         f"va_degree={num(net.ext_grid, i, 'va_degree')}, name={repr_nom(net.ext_grid, i)}))")
             L.append("")
 
-        bloque("Buses", "bus", net.bus, ["vn_kv"])
-        bloque("Líneas", "line", net.line, ["length_km", "parallel", "df"])
-        bloque("Transformadores", "trafo", net.trafo, ["tap_pos"])
-        bloque("Cargas", "load", net.load, ["p_mw", "q_mvar", "scaling"])
-        bloque("Solar", "sgen", net.sgen, ["p_mw", "q_mvar", "scaling"])
-        bloque("Baterías", "storage", net.storage, ["p_mw", "q_mvar", "max_e_mwh", "soc_percent", "scaling"])
-        bloque("Red externa", "ext_grid", net.ext_grid, ["vm_pu", "va_degree"])
+        # --- Líneas ---
+        if len(net.line):
+            L.append("# --- Líneas ---")
+            for i in net.line.index:
+                L.append(
+                    f"pp.create_line_from_parameters(net, index={int(i)}, "
+                    f"from_bus={int(net.line.at[i, 'from_bus'])}, to_bus={int(net.line.at[i, 'to_bus'])}, "
+                    f"length_km={num(net.line, i, 'length_km', 0.1)}, "
+                    f"r_ohm_per_km={num(net.line, i, 'r_ohm_per_km')}, x_ohm_per_km={num(net.line, i, 'x_ohm_per_km')}, "
+                    f"c_nf_per_km={num(net.line, i, 'c_nf_per_km')}, max_i_ka={num(net.line, i, 'max_i_ka', 1.0)}, "
+                    f"parallel={int(num(net.line, i, 'parallel', 1))}, df={num(net.line, i, 'df', 1.0)}, "
+                    f"name={repr_nom(net.line, i)})")
+            L.append("")
+
+        # --- Transformadores ---
+        if len(net.trafo):
+            L.append("# --- Transformadores ---")
+            for i in net.trafo.index:
+                L.append(
+                    f"pp.create_transformer_from_parameters(net, index={int(i)}, "
+                    f"hv_bus={int(net.trafo.at[i, 'hv_bus'])}, lv_bus={int(net.trafo.at[i, 'lv_bus'])}, "
+                    f"sn_mva={num(net.trafo, i, 'sn_mva', 0.4)}, vn_hv_kv={num(net.trafo, i, 'vn_hv_kv', 20.0)}, "
+                    f"vn_lv_kv={num(net.trafo, i, 'vn_lv_kv', 0.4)}, vkr_percent={num(net.trafo, i, 'vkr_percent', 1.0)}, "
+                    f"vk_percent={num(net.trafo, i, 'vk_percent', 4.0)}, pfe_kw={num(net.trafo, i, 'pfe_kw')}, "
+                    f"i0_percent={num(net.trafo, i, 'i0_percent')}, tap_pos={num(net.trafo, i, 'tap_pos')}, "
+                    f"name={repr_nom(net.trafo, i)})")
+            L.append("")
+
+        # --- Cargas ---
+        if len(net.load):
+            L.append("# --- Cargas ---")
+            for i in net.load.index:
+                L.append(f"model.add_load(Load(bus={int(net.load.at[i, 'bus'])}, "
+                         f"p_mw={num(net.load, i, 'p_mw')}, q_mvar={num(net.load, i, 'q_mvar')}, "
+                         f"scaling={num(net.load, i, 'scaling', 1.0)}, name={repr_nom(net.load, i)}))")
+            L.append("")
+
+        # --- Solar ---
+        if len(net.sgen):
+            L.append("# --- Solar ---")
+            for i in net.sgen.index:
+                L.append(f"model.add_solar_panel(SolarPanel(bus={int(net.sgen.at[i, 'bus'])}, "
+                         f"p_mw={num(net.sgen, i, 'p_mw')}, q_mvar={num(net.sgen, i, 'q_mvar')}, "
+                         f"scaling={num(net.sgen, i, 'scaling', 1.0)}, name={repr_nom(net.sgen, i)}))")
+            L.append("")
+
+        # --- Baterías ---
+        if len(net.storage):
+            L.append("# --- Baterías ---")
+            for i in net.storage.index:
+                L.append(f"model.add_battery(Battery(bus={int(net.storage.at[i, 'bus'])}, "
+                         f"p_mw={num(net.storage, i, 'p_mw')}, max_e_mwh={num(net.storage, i, 'max_e_mwh', 0.05)}, "
+                         f"q_mvar={num(net.storage, i, 'q_mvar')}, soc_percent={num(net.storage, i, 'soc_percent', 50.0)}, "
+                         f"scaling={num(net.storage, i, 'scaling', 1.0)}, name={repr_nom(net.storage, i)}))")
+            L.append("")
+
         return "\n".join(L).rstrip() + "\n"
 
     # ---- red de ejemplo --------------------------------------------------

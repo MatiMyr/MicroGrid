@@ -107,9 +107,14 @@ def layout():
                     html.Div(
                         html.Div(
                             [_legend(),
-                             cyto.Cytoscape(id="db-graph", layout={"name": "cose", "animate": False, "padding": 30},
-                                            style={"width": "100%", "height": "46vh"},
-                                            stylesheet=STYLESHEET, elements=[])],
+                             html.Div("Vista estática: refleja la topología y posiciones definidas en el Editor.",
+                                      className="card-sub", style={"padding": "0 14px"}),
+                             cyto.Cytoscape(id="db-graph", layout={"name": "preset", "fit": True, "padding": 40},
+                                            style={"width": "100%", "height": "44vh"},
+                                            stylesheet=STYLESHEET, elements=[],
+                                            autoRefreshLayout=False, autoungrabify=True,
+                                            autounselectify=True, userPanningEnabled=False,
+                                            userZoomingEnabled=False, boxSelectionEnabled=False)],
                             className="graph-frame",
                         ),
                     ),
@@ -199,7 +204,9 @@ def register_callbacks(app, services):
         Input("db-store", "data"), Input("db-hora", "value"),
     )
     def actualizar(data, hora):
-        net = network_service.get_network().net
+        modelo = network_service.get_network()
+        modelo.ensure_positions()
+        net = modelo.net
         if not data:
             return ("—", "—", "—", "—", "—", "—", net_to_elements(net),
                     theme.empty("Perfil de tensión por nodo"),

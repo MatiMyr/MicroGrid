@@ -11,7 +11,7 @@ from dash import Input, Output, State, ctx, dcc, html
 
 from domain.network_model import Battery, Bus, ExternalGrid, Line, Load, SolarPanel
 from repositories.json_net_repository import NombreDuplicadoError
-from ui.graph_view import LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements
+from ui.graph_view import LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements, pixel_to_geo
 
 
 def _num(value, default=0.0):
@@ -153,11 +153,14 @@ def layout():
                 html.Div(
                     [
                         _legend(),
+                        html.Div("Arrastrá los buses para acomodarlos: la posición queda guardada en el código.",
+                                 className="card-sub", style={"padding": "0 14px"}),
                         cyto.Cytoscape(
                             id="ed-graph",
-                            layout={"name": "cose", "animate": False, "padding": 30},
-                            style={"width": "100%", "height": "74vh"},
+                            layout={"name": "preset", "fit": True, "padding": 40},
+                            style={"width": "100%", "height": "70vh"},
                             stylesheet=STYLESHEET,
+                            autoRefreshLayout=False,
                             elements=[],
                         ),
                     ],
@@ -179,6 +182,27 @@ def _resumen(net) -> str:
 
 def register_callbacks(app, services):
     network_service = services["network_service"]
+
+    # Al soltar un bus tras arrastrarlo, cytoscape emite 'dragfree' (no 'tap').
+    # Este hook reenvía ese evento como 'tap' para que el callback de posición
+    # (Input ed-graph.tapNode) se dispare y guarde la nueva posición en el código.
+    app.clientside_callback(
+        """
+        function(elements) {
+            setTimeout(function() {
+                var d = document.getElementById('ed-graph');
+                var cy = d && d._cyreg && d._cyreg.cy;
+                if (cy && !cy._dragHooked) {
+                    cy._dragHooked = true;
+                    cy.on('dragfree', 'node', function(e) { e.target.emit('tap'); });
+                }
+            }, 120);
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("ed-graph", "autolock"),
+        Input("ed-graph", "elements"),
+    )
 
     def _opciones_guardadas():
         return [{"label": r["nombre"], "value": r["id"]} for r in network_service.listar_guardadas()]
@@ -203,6 +227,7 @@ def register_callbacks(app, services):
         Input("ed-btn-code-refresh", "n_clicks"),
         Input("ed-btn-save", "n_clicks"),
         Input("ed-btn-save-changes", "n_clicks"),
+        Input("ed-graph", "tapNode"),
         State("ed-simbench-code", "value"),
         State("ed-guardadas", "value"),
         State("ed-bus-vn", "value"), State("ed-bus-name", "value"),
@@ -216,7 +241,7 @@ def register_callbacks(app, services):
         State("ed-save-name", "value"),
     )
     def actualizar(_e, _sb, _g, _bus, _line, _load, _sgen, _bat, _ext, _rm, _code, _coderef, _save, _savech,
-                   simbench_code, guardada_id,
+                   tap_node, simbench_code, guardada_id,
                    bus_vn, bus_name, line_from, line_to, line_len,
                    load_bus, load_p, load_q, sgen_bus, sgen_p,
                    bat_bus, bat_p, bat_maxe, bat_soc, ext_bus,
@@ -262,6 +287,14 @@ def register_callbacks(app, services):
                 status = "Código ejecutado."
             elif disparador == "ed-btn-code-refresh":
                 status = "Código regenerado desde la red actual."
+            elif disparador == "ed-graph" and tap_node:
+                nid = (tap_node.get("data") or {}).get("id", "")
+                pos = tap_node.get("position") or {}
+                if nid.startswith("b") and nid[1:].isdigit() and "x" in pos:
+                    bus_idx = int(nid[1:])
+                    gx, gy = pixel_to_geo(pos["x"], pos["y"])
+                    network_service.get_network().set_bus_position(bus_idx, gx, gy)
+                    status = f"Posición del bus {bus_idx} guardada ({gx}, {gy})."
             elif disparador == "ed-btn-save":
                 rid = network_service.guardar((save_name or "Mi red").strip())
                 status = f"Red guardada (id {rid[:8]}…)."
@@ -273,6 +306,8 @@ def register_callbacks(app, services):
         except Exception as exc:  # noqa: BLE001
             status = f"⚠ Error: {exc}"
 
-        net = network_service.get_network().net
-        return (net_to_elements(net), _resumen(net), status,
+        modelo = network_service.get_network()
+        modelo.ensure_positions()
+        net = modelo.net
+        return (net_to_elements(net, editable=True), _resumen(net), status,
                 _opciones_guardadas(), network_service.generar_codigo())

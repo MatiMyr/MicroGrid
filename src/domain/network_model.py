@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 import pandapower as pp
@@ -114,6 +115,59 @@ class NetworkModel:
         """Aplica un factor de escala horario a toda la generación solar (sgen)."""
         if len(self.net.sgen):
             self.net.sgen["scaling"] = float(factor)
+
+    # ---- posición gráfica de los buses (geo) ----------------------------
+    def set_bus_position(self, bus_index: int, x: float, y: float) -> None:
+        """Fija la posición gráfica de un bus (se guarda como GeoJSON Point)."""
+        if bus_index in self.net.bus.index:
+            self.net.bus.at[bus_index, "geo"] = json.dumps(
+                {"coordinates": [round(float(x), 4), round(float(y), 4)], "type": "Point"}
+            )
+
+    def get_bus_position(self, bus_index: int) -> Optional[tuple[float, float]]:
+        """Devuelve (x, y) del bus, o ``None`` si no tiene posición asignada."""
+        if bus_index not in self.net.bus.index:
+            return None
+        geo = self.net.bus.at[bus_index, "geo"]
+        if geo is None or str(geo) == "nan":
+            return None
+        try:
+            x, y = json.loads(geo)["coordinates"]
+            return float(x), float(y)
+        except (ValueError, KeyError, TypeError):
+            return None
+
+    def bus_positions(self) -> dict[int, tuple[float, float]]:
+        """Mapa ``bus_index -> (x, y)`` de los buses con posición asignada."""
+        out: dict[int, tuple[float, float]] = {}
+        for idx in self.net.bus.index:
+            pos = self.get_bus_position(idx)
+            if pos is not None:
+                out[int(idx)] = pos
+        return out
+
+    def ensure_positions(self) -> None:
+        """Asigna posiciones a los buses que no tengan una (layout automático).
+
+        Usa un layout de resorte (networkx) sobre el grafo de líneas y trafos,
+        determinista, para que toda red — nueva o importada sin geodata — tenga
+        coordenadas y el grafo pueda dibujarse con posiciones fijas y editables.
+        """
+        faltan = [int(i) for i in self.net.bus.index if self.get_bus_position(i) is None]
+        if not faltan:
+            return
+        import networkx as nx
+
+        g = nx.Graph()
+        g.add_nodes_from(int(i) for i in self.net.bus.index)
+        for _, row in self.net.line.iterrows():
+            g.add_edge(int(row["from_bus"]), int(row["to_bus"]))
+        for _, row in self.net.trafo.iterrows():
+            g.add_edge(int(row["hv_bus"]), int(row["lv_bus"]))
+        pos = nx.spring_layout(g, seed=42, scale=10.0) if len(g) else {}
+        for i in faltan:
+            x, y = pos.get(i, (0.0, 0.0))
+            self.set_bus_position(i, x, y)
 
     def set_storage_soc(self, soc_percent) -> None:
         """Fija el SoC inicial de las baterías.
