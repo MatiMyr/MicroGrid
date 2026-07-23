@@ -165,7 +165,8 @@ def layout():
                 html.Div(
                     [
                         _legend(),
-                        html.Div("Arrastrá los buses para acomodarlos: la posición queda guardada en el código.",
+                        html.Div("Arrastrá los buses para acomodarlos (la posición se guarda en el código). "
+                                 "Hacé zoom con la rueda: las marcas mantienen su tamaño y los buses se separan.",
                                  className="card-sub", style={"padding": "0 14px"}),
                         cyto.Cytoscape(
                             id="ed-graph",
@@ -174,7 +175,7 @@ def layout():
                             stylesheet=STYLESHEET,
                             autoRefreshLayout=False,
                             userZoomingEnabled=True, userPanningEnabled=True,
-                            minZoom=0.2, maxZoom=3,
+                            minZoom=0.1, maxZoom=12,
                             elements=[],
                         ),
                     ],
@@ -210,6 +211,7 @@ def register_callbacks(app, services):
                     cy._dragHooked = true;
                     cy.on('dragfree', 'node', function(e) { e.target.emit('tap'); });
                 }
+                if (window.mgInstallMapZoom) { window.mgInstallMapZoom('ed-graph'); }
             }, 120);
             return window.dash_clientside.no_update;
         }

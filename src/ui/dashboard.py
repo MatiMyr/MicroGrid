@@ -110,7 +110,8 @@ def layout():
                     html.Div(
                         html.Div(
                             [_legend(),
-                             html.Div("Solo lectura: zoom con la rueda y arrastre del fondo para desplazarte. Los nodos no se editan acá.",
+                             html.Div("Solo lectura: zoom con la rueda (las marcas mantienen su tamaño y los buses se separan) "
+                                      "y arrastre del fondo para desplazarte. Los nodos no se editan acá.",
                                       className="card-sub", style={"padding": "0 14px"}),
                              cyto.Cytoscape(id="db-graph", layout={"name": "preset", "fit": True, "padding": 40},
                                             style={"width": "100%", "height": "44vh"},
@@ -118,7 +119,7 @@ def layout():
                                             autoRefreshLayout=False, autoungrabify=True,
                                             autounselectify=True, userPanningEnabled=True,
                                             userZoomingEnabled=True, boxSelectionEnabled=False,
-                                            minZoom=0.2, maxZoom=3)],
+                                            minZoom=0.1, maxZoom=12)],
                             className="graph-frame",
                         ),
                     ),
@@ -167,6 +168,20 @@ def register_callbacks(app, services):
     network_service = services["network_service"]
     simulation_service = services["simulation_service"]
     data_sync_service = services["data_sync_service"]
+
+    # Marcas de tamaño constante en pantalla (comportamiento de mapa) al hacer zoom.
+    app.clientside_callback(
+        """
+        function(elements) {
+            setTimeout(function() {
+                if (window.mgInstallMapZoom) { window.mgInstallMapZoom('db-graph'); }
+            }, 120);
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("db-graph", "autolock"),
+        Input("db-graph", "elements"),
+    )
 
     # ---- correr simulación ----
     @app.callback(
