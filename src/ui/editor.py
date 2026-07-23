@@ -14,7 +14,6 @@ from repositories.json_net_repository import NombreDuplicadoError
 from ui.graph_view import (
     LEGEND_BADGES,
     LEGEND_NODES,
-    LEGEND_STATUS,
     STYLESHEET,
     net_to_elements,
     pixel_to_geo,
@@ -59,14 +58,13 @@ def _btn(label, id_, primary=False):
 
 
 def _legend():
+    # El estado de tensión (sana/alerta/crítica) es exclusivo del Dashboard tras
+    # simular; en el Editor solo se muestran el bus y los badges de elementos.
     nodos = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
              for c, t in LEGEND_NODES]
     badges = [html.Div([html.Span(e, className="badge"), t], className="item")
               for e, t in LEGEND_BADGES]
-    status = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
-              for c, t in LEGEND_STATUS]
-    sep = html.Span("·", style={"color": "var(--muted)"})
-    return html.Div(nodos + badges + [sep] + status, className="legend")
+    return html.Div(nodos + badges, className="legend")
 
 
 # ---- panel de detalle por bus (estilo mapa) ----------------------------
@@ -241,10 +239,6 @@ def layout():
                 html.Div(
                     [
                         _legend(),
-                        html.Div("Tocá un bus para seleccionarlo y ver su detalle; una vez seleccionado podés "
-                                 "arrastrarlo (la posición se guarda en el código). Zoom con la rueda: las marcas "
-                                 "mantienen su tamaño y los buses se separan.",
-                                 className="card-sub", style={"padding": "0 14px"}),
                         cyto.Cytoscape(
                             id="ed-graph",
                             className="cyto-grid",
