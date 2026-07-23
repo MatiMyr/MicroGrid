@@ -1,0 +1,15 @@
+# Simulación eléctrica y redes de referencia
+pandapower==3.4.0
+simbench==1.6.2
+
+# UI web (Dash + grafo interactivo + gráficos)
+dash==4.4.1
+dash-cytoscape==1.0.2
+plotly==6.9.0
+
+# Datos externos (NASA POWER / CAMMESA)
+requests==2.34.2
+
+# Núcleo de datos (dependencias directas usadas por el proyecto)
+pandas==2.3.3
+numpy==2.3.5

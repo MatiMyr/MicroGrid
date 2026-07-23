@@ -33,6 +33,35 @@ class SimEngine:
         return float(df[col].sum())
 
     @staticmethod
+    def _battery_soc_result(network: NetworkModel, dt_h: float = 1.0) -> Dict[int, float]:
+        """Calcula el SoC resultante de cada batería tras simular un instante.
+
+        Conocimiento eléctrico del dominio: a partir de ``res_storage.p_mw``
+        (positivo = descarga, negativo = carga) y la energía almacenada inicial
+        derivada de ``soc_percent`` y ``max_e_mwh``, actualiza el estado de carga.
+        El resultado permite retomar la cadena de una corrida desde un instante
+        cacheado sin tener la corrida en memoria.
+        """
+        storage = getattr(network.net, "storage", None)
+        res_storage = getattr(network.net, "res_storage", None)
+        soc: Dict[int, float] = {}
+        if storage is None or res_storage is None:
+            return soc
+        for idx in storage.index:
+            max_e = float(storage.at[idx, "max_e_mwh"])
+            soc0 = float(storage.at[idx, "soc_percent"])
+            if max_e <= 0:
+                soc[int(idx)] = soc0
+                continue
+            e0 = soc0 / 100.0 * max_e
+            p_mw = float(res_storage.at[idx, "p_mw"]) if idx in res_storage.index else 0.0
+            # Descarga (p>0) reduce la energía almacenada; carga (p<0) la aumenta.
+            e1 = e0 - p_mw * dt_h
+            e1 = max(0.0, min(max_e, e1))
+            soc[int(idx)] = round(e1 / max_e * 100.0, 4)
+        return soc
+
+    @staticmethod
     def _build_result(
         network: NetworkModel, mode: str, nombre_red: str = "", escenario: str = ""
     ) -> SimulationResult:
@@ -98,6 +127,7 @@ class SimEngine:
             curtailment_solar_mw=curtailment_solar_mw,
             node_results=node_map,
             line_results=line_map,
+            battery_soc_result=SimEngine._battery_soc_result(network),
             nombre_red=nombre_red,
             escenario=escenario,
         )

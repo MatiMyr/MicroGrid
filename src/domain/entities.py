@@ -109,3 +109,7 @@ class SimulationResult:
     timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     nombre_red: str = ""
     escenario: str = ""
+    # Clave de caché por instante (hash de los inputs) y agrupación por corrida.
+    input_hash: str = ""
+    run_id: str = ""
+    hour_index: int = 0

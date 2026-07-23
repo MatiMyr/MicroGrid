@@ -103,3 +103,29 @@ class NetworkModel:
 
     def remove_element(self, element_type: str, index: int) -> None:
         pp.drop_elements(self.net, element_type=element_type, element_index=[index])
+
+    # ---- ajustes para simulación horaria --------------------------------
+    def apply_load_scaling(self, factor: float) -> None:
+        """Aplica un factor de escala horario a todas las cargas."""
+        if len(self.net.load):
+            self.net.load["scaling"] = float(factor)
+
+    def apply_sgen_scaling(self, factor: float) -> None:
+        """Aplica un factor de escala horario a toda la generación solar (sgen)."""
+        if len(self.net.sgen):
+            self.net.sgen["scaling"] = float(factor)
+
+    def set_storage_soc(self, soc_percent) -> None:
+        """Fija el SoC inicial de las baterías.
+
+        ``soc_percent`` puede ser un único valor (para todas) o un dict
+        ``{index -> soc_percent}``.
+        """
+        if not len(self.net.storage):
+            return
+        if isinstance(soc_percent, dict):
+            for idx, soc in soc_percent.items():
+                if idx in self.net.storage.index:
+                    self.net.storage.at[idx, "soc_percent"] = float(soc)
+        else:
+            self.net.storage["soc_percent"] = float(soc_percent)
