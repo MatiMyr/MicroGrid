@@ -59,12 +59,17 @@ class NetworkService:
             net = sb.get_simbench_net(codigo)
             self.simbench_repo.guardar(codigo, net)
         self.set_network(NetworkModel(net))
+        # SimBench trae lat/lon reales de rango minúsculo: normalizar para el grafo.
+        self.model.ensure_positions()
+        self.model.normalize_positions()
         return self.model
 
     def cargar_guardada(self, red_id: str) -> NetworkModel:
         """Carga una red guardada por su id estable."""
         net = self.net_repo.cargar(red_id)
         self.set_network(NetworkModel(net), red_id=red_id)
+        self.model.ensure_positions()
+        self.model.normalize_positions()
         return self.model
 
     def aplicar_codigo(self, codigo_py: str) -> NetworkModel:

@@ -146,6 +146,29 @@ class NetworkModel:
                 out[int(idx)] = pos
         return out
 
+    def normalize_positions(self, target: float = 10.0) -> None:
+        """Reescala las posiciones de los buses a un rango consistente (0..target).
+
+        Las redes SimBench traen ``geo`` con lat/lon reales cuyo rango es
+        minúsculo (p. ej. span de 0.003°): con una escala fija todos los nodos
+        colapsarían en un punto. Esto los remapea a un lienzo homogéneo,
+        preservando la relación de aspecto, para que el grafo se vea legible y
+        el arrastre (que asume este rango) guarde coordenadas coherentes.
+        """
+        pos = self.bus_positions()
+        if len(pos) < 2:
+            return
+        xs = [p[0] for p in pos.values()]
+        ys = [p[1] for p in pos.values()]
+        minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+        span_x, span_y = maxx - minx, maxy - miny
+        span = max(span_x, span_y)
+        if span <= 0:
+            return
+        scale = target / span
+        for idx, (x, y) in pos.items():
+            self.set_bus_position(idx, (x - minx) * scale, (y - miny) * scale)
+
     def ensure_positions(self) -> None:
         """Asigna posiciones a los buses que no tengan una (layout automático).
 
