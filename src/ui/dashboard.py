@@ -13,7 +13,7 @@ from dash import Input, Output, State, ctx, dcc, html
 from plotly.subplots import make_subplots
 
 from ui import theme
-from ui.graph_view import LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements
+from ui.graph_view import LEGEND_BADGES, LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements
 
 
 def _kpi(titulo, id_, accent=False):
@@ -43,9 +43,12 @@ def _dropdown(label, id_, options, value):
 def _legend():
     nodes = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
              for c, t in LEGEND_NODES]
+    badges = [html.Div([html.Span(e, className="badge"), t], className="item")
+              for e, t in LEGEND_BADGES]
     status = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
               for c, t in LEGEND_STATUS]
-    return html.Div(nodes + [html.Span("·", style={"color": "var(--muted)"})] + status, className="legend")
+    sep = html.Span("·", style={"color": "var(--muted)"})
+    return html.Div(nodes + badges + [sep] + status, className="legend")
 
 
 def layout():
@@ -107,14 +110,15 @@ def layout():
                     html.Div(
                         html.Div(
                             [_legend(),
-                             html.Div("Vista estática: refleja la topología y posiciones definidas en el Editor.",
+                             html.Div("Solo lectura: zoom con la rueda y arrastre del fondo para desplazarte. Los nodos no se editan acá.",
                                       className="card-sub", style={"padding": "0 14px"}),
                              cyto.Cytoscape(id="db-graph", layout={"name": "preset", "fit": True, "padding": 40},
                                             style={"width": "100%", "height": "44vh"},
                                             stylesheet=STYLESHEET, elements=[],
                                             autoRefreshLayout=False, autoungrabify=True,
-                                            autounselectify=True, userPanningEnabled=False,
-                                            userZoomingEnabled=False, boxSelectionEnabled=False)],
+                                            autounselectify=True, userPanningEnabled=True,
+                                            userZoomingEnabled=True, boxSelectionEnabled=False,
+                                            minZoom=0.2, maxZoom=3)],
                             className="graph-frame",
                         ),
                     ),

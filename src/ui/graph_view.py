@@ -11,9 +11,12 @@ from typing import Dict, Optional
 # Estado eléctrico -> paleta de status (dataviz): good / warning / critical.
 _GOOD, _WARNING, _CRITICAL, _IDLE = "#0ca30c", "#eda100", "#d03b3b", "#9e9e9e"
 
-# Escala geo -> píxeles y offsets de los nodos conectados respecto de su bus.
+# Escala geo -> píxeles.
 _SCALE = 34.0
-_OFFSET = {"sgen": (0, -46), "storage": (46, 0), "load": (0, 46), "ext_grid": (0, -60)}
+
+# Emojis de los elementos conectados, mostrados como badges sobre el bus
+# (en vez de nodos aparte) para que el grafo escale a redes grandes.
+_BADGE = {"sgen": "☀", "storage": "🔋", "load": "🏠", "ext_grid": "🔌"}
 
 
 def pixel_to_geo(x: float, y: float) -> tuple[float, float]:
@@ -71,24 +74,58 @@ def net_to_elements(
     elements: list[dict] = []
     voltage_profile = voltage_profile or {}
     line_loading = line_loading or {}
-    bus_xy: Dict[int, tuple[float, float]] = {}
 
-    # Buses
+    # Conteo de elementos conectados por bus (para los badges).
+    def _por_bus(tabla) -> Dict[int, int]:
+        df = getattr(net, tabla, None)
+        if df is None or not len(df):
+            return {}
+        return {int(k): int(v) for k, v in df["bus"].value_counts().items()}
+
+    conteos = {clase: _por_bus(clase) for clase in _BADGE}
+
+    def _badges(bus_idx: int) -> str:
+        partes = []
+        for clase, emoji in _BADGE.items():
+            n = conteos[clase].get(bus_idx, 0)
+            if n:
+                partes.append(f"{emoji}{n}" if n > 1 else emoji)
+        return " ".join(partes)
+
+    # Buses (con badges de sus elementos conectados) + jitter anti-superposición.
+    usados: Dict[tuple[int, int], int] = {}
     for idx in net.bus.index:
+        bus_idx = int(idx)
         nombre = net.bus.at[idx, "name"]
         etiqueta = str(nombre) if nombre is not None and str(nombre) != "nan" else f"Bus {idx}"
-        data = {"id": f"b{idx}", "label": etiqueta}
+        badges = _badges(bus_idx)
         vm = voltage_profile.get(idx, voltage_profile.get(str(idx)))
         if vm is not None:
-            data["color"] = _color_por_tension(float(vm))
-            data["label"] = f"{etiqueta}\n{float(vm):.3f} pu"
+            color = _color_por_tension(float(vm))
+            label = f"{etiqueta}\n{float(vm):.3f} pu"
         else:
-            data["color"] = "#2a78d6"
-        el = {"data": data, "classes": "bus", "grabbable": bool(editable)}
+            color = "#2a78d6"
+            label = etiqueta
+        if badges:
+            label = f"{label}\n{badges}"
+        es_slack = conteos["ext_grid"].get(bus_idx, 0) > 0
+        el = {
+            "data": {"id": f"b{bus_idx}", "label": label, "color": color},
+            "classes": "bus slack" if es_slack else "bus",
+            "grabbable": bool(editable),
+        }
         pos = _bus_xy(net, idx)
         if pos is not None:
-            bus_xy[int(idx)] = pos
-            el["position"] = {"x": pos[0], "y": pos[1]}
+            x, y = pos
+            # Separa buses en coordenadas (casi) coincidentes con un desplazamiento
+            # determinista, para que no queden apilados uno sobre otro.
+            clave = (round(x / 6), round(y / 6))
+            k = usados.get(clave, 0)
+            usados[clave] = k + 1
+            if k:
+                x += 9 * k
+                y += 9 * k
+            el["position"] = {"x": x, "y": y}
         elements.append(el)
 
     # Líneas
@@ -111,33 +148,7 @@ def net_to_elements(
             }
         )
 
-    # Elementos conectados (carga, solar, batería, red externa) como nodos hijos.
-    _agregar_conectados(elements, net, "load", "Carga", "load", bus_xy)
-    _agregar_conectados(elements, net, "sgen", "PV", "sgen", bus_xy)
-    _agregar_conectados(elements, net, "storage", "Bat", "storage", bus_xy)
-    _agregar_conectados(elements, net, "ext_grid", "Grid", "ext_grid", bus_xy)
     return elements
-
-
-def _agregar_conectados(elements, net, tabla, prefijo, clase, bus_xy) -> None:
-    df = getattr(net, tabla, None)
-    if df is None:
-        return
-    # Cuenta de elementos por bus para desplegar varios sin superponerlos.
-    vistos: Dict[int, int] = {}
-    for idx in df.index:
-        bus = int(df.at[idx, "bus"])
-        node_id = f"{clase}{idx}"
-        el = {"data": {"id": node_id, "label": f"{prefijo} {idx}"}, "classes": clase, "grabbable": False}
-        if bus in bus_xy:
-            n = vistos.get(bus, 0)
-            vistos[bus] = n + 1
-            ox, oy = _OFFSET[clase]
-            el["position"] = {"x": bus_xy[bus][0] + ox + n * 14, "y": bus_xy[bus][1] + oy}
-        elements.append(el)
-        elements.append(
-            {"data": {"source": node_id, "target": f"b{bus}", "id": f"{clase}e{idx}"}, "classes": "conn"}
-        )
 
 
 # Hoja de estilos de Cytoscape reutilizable (paleta del proyecto).
@@ -154,30 +165,32 @@ STYLESHEET = [
             "background-color": "data(color)",
             "color": "#fff",
             "font-size": "9px",
-            "width": "48px",
-            "height": "48px",
+            "width": "42px",
+            "height": "42px",
             "border-width": 2,
             "border-color": "rgba(255,255,255,0.55)",
             "text-outline-width": 0,
+            "text-max-width": "80px",
         },
     },
-    {"selector": "node.load", "style": {**_LABEL, "background-color": "#6d5849", "shape": "round-rectangle", "font-size": "8px", "width": "32px", "height": "22px", "color": "#fff"}},
-    {"selector": "node.sgen", "style": {**_LABEL, "background-color": "#eda100", "shape": "triangle", "font-size": "8px", "width": "28px", "height": "28px", "color": "#3a2c00"}},
-    {"selector": "node.storage", "style": {**_LABEL, "background-color": "#1baf7a", "shape": "barrel", "font-size": "8px", "width": "28px", "height": "28px", "color": "#fff"}},
-    {"selector": "node.ext_grid", "style": {**_LABEL, "background-color": "#37474f", "shape": "diamond", "font-size": "8px", "width": "34px", "height": "34px", "color": "#fff"}},
+    # Bus con red externa (slack): anillo dorado distintivo.
+    {"selector": "node.slack", "style": {"border-width": 4, "border-color": "#eda100"}},
     {"selector": "edge.line", "style": {"line-color": "data(color)", "width": 4, "label": "data(label)", "font-size": "8px", "color": "#898781", "curve-style": "bezier", "text-rotation": "autorotate"}},
     {"selector": "edge.trafo", "style": {"line-color": "#4a3aa7", "width": 5, "label": "data(label)", "line-style": "dashed", "font-size": "8px", "color": "#898781"}},
-    {"selector": "edge.conn", "style": {"line-color": "rgba(137,135,129,0.55)", "width": 1.5, "line-style": "dotted"}},
+    {"selector": "node:selected", "style": {"border-width": 4, "border-color": "#2a78d6"}},
 ]
 
 
-# Ítems de leyenda (para render en HTML fuera del canvas Cytoscape).
+# Leyenda: nodo bus + badges de elementos conectados + estado de tensión.
 LEGEND_NODES = [
-    ("#2a78d6", "Bus"),
-    ("#eda100", "Solar"),
-    ("#1baf7a", "Batería"),
-    ("#6d5849", "Carga"),
-    ("#37474f", "Red externa"),
+    ("#2a78d6", "Bus (sin simular)"),
+]
+# Badges (emoji sobre el bus) — se renderizan como texto, no como punto de color.
+LEGEND_BADGES = [
+    ("☀", "Solar"),
+    ("🔋", "Batería"),
+    ("🏠", "Carga"),
+    ("🔌", "Red externa"),
 ]
 LEGEND_STATUS = [
     ("#0ca30c", "Tensión sana (±5%)"),

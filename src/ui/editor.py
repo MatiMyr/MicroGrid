@@ -11,7 +11,14 @@ from dash import Input, Output, State, ctx, dcc, html
 
 from domain.network_model import Battery, Bus, ExternalGrid, Line, Load, SolarPanel
 from repositories.json_net_repository import NombreDuplicadoError
-from ui.graph_view import LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements, pixel_to_geo
+from ui.graph_view import (
+    LEGEND_BADGES,
+    LEGEND_NODES,
+    LEGEND_STATUS,
+    STYLESHEET,
+    net_to_elements,
+    pixel_to_geo,
+)
 
 
 def _num(value, default=0.0):
@@ -52,9 +59,14 @@ def _btn(label, id_, primary=False):
 
 
 def _legend():
-    items = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
+    nodos = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
              for c, t in LEGEND_NODES]
-    return html.Div(items, className="legend")
+    badges = [html.Div([html.Span(e, className="badge"), t], className="item")
+              for e, t in LEGEND_BADGES]
+    status = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
+              for c, t in LEGEND_STATUS]
+    sep = html.Span("·", style={"color": "var(--muted)"})
+    return html.Div(nodos + badges + [sep] + status, className="legend")
 
 
 def layout():
@@ -161,6 +173,8 @@ def layout():
                             style={"width": "100%", "height": "70vh"},
                             stylesheet=STYLESHEET,
                             autoRefreshLayout=False,
+                            userZoomingEnabled=True, userPanningEnabled=True,
+                            minZoom=0.2, maxZoom=3,
                             elements=[],
                         ),
                     ],
