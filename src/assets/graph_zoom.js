@@ -11,6 +11,7 @@ window.mgInstallMapZoom = function (divId) {
 
     // Tamaños base en píxeles de pantalla (a zoom = 1).
     var BASE = { node: 42, font: 9, border: 2, slack: 4, edge: 4, trafo: 5, edgeFont: 8, textMax: 80 };
+    var GRID = 40; // paso de la grilla en unidades de modelo
 
     var reescalar = function () {
         var z = cy.zoom() || 1;
@@ -28,9 +29,20 @@ window.mgInstallMapZoom = function (divId) {
         });
     };
 
+    // Grilla de fondo que se mueve y escala con el grafo (referencia al hacer zoom).
+    var actualizarGrilla = function () {
+        var z = cy.zoom() || 1;
+        var p = cy.pan() || { x: 0, y: 0 };
+        var s = GRID * z;
+        div.style.backgroundSize = s + 'px ' + s + 'px, ' + s + 'px ' + s + 'px';
+        div.style.backgroundPosition = p.x + 'px ' + p.y + 'px, ' + p.x + 'px ' + p.y + 'px';
+    };
+
     if (!cy._mapHooked) {
         cy._mapHooked = true;
-        cy.on('zoom', reescalar);
+        cy.on('zoom', function () { reescalar(); actualizarGrilla(); });
+        cy.on('pan', actualizarGrilla);
     }
     reescalar();
+    actualizarGrilla();
 };

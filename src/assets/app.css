@@ -315,6 +315,16 @@ pre.summary {
   overflow: hidden;
 }
 
+/* Grilla de fondo del grafo (size/position se sincronizan con pan/zoom vía JS). */
+.cyto-grid {
+  background-color: var(--surface);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px;
+  background-repeat: repeat, repeat;
+}
+
 /* ---------- Legend for graph ---------- */
 .legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 14px 2px; font-size: 12px; color: var(--ink-2); }
 .legend .item { display: flex; align-items: center; gap: 6px; }
