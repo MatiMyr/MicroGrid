@@ -10,9 +10,7 @@ Hoy la autosuficiencia se calcula como:
 autosuficiencia = solar / (consumo + pérdidas)
 ```
 
-La batería no aparece en la fórmula. Como el motor simula **un instante (una hora) por vez**,
-de noche `solar = 0` → autosuficiencia = 0%, aunque el consumo esté 100% cubierto por una batería
-cargada con solar durante el día. Resultado incorrecto.
+La batería no aparece en la fórmula. Como el motor simula **un instante (una hora) por vez**, de noche `solar = 0` → autosuficiencia = 0%, aunque el consumo esté 100% cubierto por una batería cargada con solar durante el día. Resultado incorrecto.
 
 ## Solución
 
@@ -23,8 +21,7 @@ aporte local     = (consumo + pérdidas) - importado de la red
 autosuficiencia  = 1 - importado / (consumo + pérdidas)
 ```
 
-Ventaja: la batería se maneja sola. Descargarla reduce el import (sube la autosuficiencia);
-cargarla desde la red aparece como import (la penaliza, porque esa energía no es local).
+Ventaja: la batería se maneja sola. Descargarla reduce el import (sube la autosuficiencia); cargarla desde la red aparece como import (la penaliza, porque esa energía no es local).
 
 | Situación | Import de red | Autosuficiencia |
 |---|---|---|
@@ -59,8 +56,5 @@ if denominator > 0:
 ## Notas
 
 - `res_ext_grid.p_mw` ya se usa en la misma función (línea ~106 para curtailment), el dato está disponible.
-- Esto corrige el cálculo **por instante**. La autosuficiencia de un período completo se obtiene
-  agregando las horas en el Dashboard (suma de importado vs. suma de consumo), y la fórmula es
-  consistente en ambos niveles.
-- Actualizar la nota de `doc/microgrid_arquitectura_archivos.md` (sección `simulation_engine.py`),
-  que hoy dice `solar / (carga + pérdidas) * 100`.
+- Esto corrige el cálculo **por instante**. La autosuficiencia de un período completo se obtiene agregando las horas en el Dashboard (suma de importado vs. suma de consumo), y la fórmula es consistente en ambos niveles.
+- Actualizar la nota de `doc/microgrid_arquitectura_archivos.md` (sección `simulation_engine.py`), que hoy dice `solar / (carga + pérdidas) * 100`.
