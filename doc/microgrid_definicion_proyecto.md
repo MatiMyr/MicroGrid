@@ -63,7 +63,7 @@ Las distribuidoras eléctricas argentinas carecen de una herramienta open source
 | Simulación | pandapower, SimBench |
 | Geodatos | geopandas |
 | UI | Dash + Dash Cytoscape + Plotly |
-| Editor de código | dash-ace o dash-codemirror |
+| Editor de código | `dcc.Textarea` (incluido en Dash) |
 | Procesamiento | pandas, requests |
 | Exploración | Jupyter |
 | Infraestructura | localhost → cloud (TBD) |
