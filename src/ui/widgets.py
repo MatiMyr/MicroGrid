@@ -10,6 +10,16 @@ from dash import dcc, html
 from ui.graph_view import LEGEND_BADGES, LEGEND_NODES, LEGEND_STATUS
 
 
+def error(texto: str):
+    """Mensaje de error para una línea de estado.
+
+    Lo distingue el color, no un glifo: el CSS también tiñe la caja entera vía
+    `.status:has(.status-error)`, así el aviso se lee de un vistazo sin recurrir
+    a un emoji de advertencia.
+    """
+    return html.Span(texto, className="status-error")
+
+
 def campo(label: str, id_, value="", tipo: str = "number", **kw):
     """Campo de formulario con su etiqueta encima."""
     return html.Div(

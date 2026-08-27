@@ -5,7 +5,7 @@ resuelta de la red. Ese ``NaN`` recorría todo el sistema: arrastraba el mínimo
 el máximo de tensión, pintaba el bus de rojo como si fuera una violación grave,
 se escribía en la caché como un token que no es JSON válido y, al volver del
 navegador convertido en ``null``, rompía el callback del Dashboard con un 500
-mientras el cartel anunciaba "✓ Corrida completa".
+mientras el cartel anunciaba "Corrida completa".
 """
 from __future__ import annotations
 

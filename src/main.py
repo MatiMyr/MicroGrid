@@ -117,7 +117,7 @@ def _header():
                 ],
                 className="app-brand",
             ),
-            html.Button("🌙  Oscuro", id="theme-toggle", className="theme-toggle", n_clicks=0),
+            html.Button("Oscuro", id="theme-toggle", className="theme-toggle", n_clicks=0),
         ],
         className="app-header",
     )
@@ -155,7 +155,7 @@ def create_app() -> dash.Dash:
             var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
             root.setAttribute('data-theme', next);
             try { localStorage.setItem('mg-theme', next); } catch (e) {}
-            return next === 'dark' ? '☀\\uFE0F  Claro' : '🌙  Oscuro';
+            return next === 'dark' ? 'Claro' : 'Oscuro';
         }
         """,
         Output("theme-toggle", "children"),

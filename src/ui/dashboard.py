@@ -17,7 +17,7 @@ from app.simulation_service import SimulationService
 from domain import epocas as epocas_mod
 from ui import theme
 from ui.graph_view import STYLESHEET, net_to_elements
-from ui.widgets import campo as _campo, leyenda
+from ui.widgets import campo as _campo, error as _error, leyenda
 
 REGIONES = sorted(CAMMESA_REGIONES)
 
@@ -76,7 +76,7 @@ def _aviso_irradiacion(r: dict) -> str:
         falta = "" if anios == pedidos else f", {pedidos - anios} sin datos"
         return (f" Irradiación NASA descargada para {epoca}: {r.get('registros', 0)} horas "
                 f"de {anios} año(s){falta}.")
-    return (f" ⚠ No se pudo descargar la irradiación de NASA para {epoca} "
+    return (f" Aviso: no se pudo descargar la irradiación de NASA para {epoca} "
             f"({r.get('error', 'error desconocido')}): el perfil solar es sintético.")
 
 
@@ -97,7 +97,7 @@ def _aviso_sin_solucion(resultados) -> str:
         partes.append(f"{buses} bus" + ("es" if buses > 1 else ""))
     if lineas:
         partes.append(f"{lineas} línea" + ("s" if lineas > 1 else ""))
-    return ("  ⚠ " + " y ".join(partes) + " sin conexión al nodo slack: quedan fuera de los "
+    return ("  Aviso: " + " y ".join(partes) + " sin conexión al nodo slack: quedan fuera de los "
             "indicadores y se muestran en gris en el grafo.")
 
 
@@ -184,7 +184,7 @@ def layout():
                                        {"label": "Flujo óptimo (runopp)", "value": "opp"}], "pp"),
                             _campo("Horas", "db-horas", 24,
                                    min=SimulationService.MIN_HORAS, max=SimulationService.MAX_HORAS),
-                            html.Div(html.Button("▶  Correr simulación", id="db-btn-run", n_clicks=0,
+                            html.Div(html.Button("Correr simulación", id="db-btn-run", n_clicks=0,
                                                  className="btn btn-primary"),
                                      className="field", style={"flex": "0 0 auto", "justifyContent": "flex-end"}),
                         ],
@@ -281,7 +281,7 @@ def layout():
             # ---- Sync de datos ----
             html.Details(
                 [
-                    html.Summary("🔄  Sincronizar datos externos"),
+                    html.Summary("Sincronizar datos externos"),
                     html.Div(
                         [
                             html.P("Descargá series reales para reemplazar los perfiles sintéticos. "
@@ -307,7 +307,7 @@ def layout():
                                    "reactivará cuando se defina cómo repartirla entre cargas.",
                                    className="card-sub"),
                             html.Div(
-                                html.Button("🗑  Limpiar caché de resultados", id="db-purgar",
+                                html.Button("Limpiar caché de resultados", id="db-purgar",
                                             n_clicks=0, className="btn btn-sm"),
                                 className="row", style={"marginTop": "10px"},
                             ),
@@ -352,8 +352,7 @@ def register_callbacks(app, services):
         else:
             msg = ("La red fue modificada en el Editor desde la última simulación. "
                    "Corré la simulación para actualizar los resultados del Dashboard.")
-        return ([html.Span("⚠", className="sw-icon"), html.Span(msg)],
-                {"display": "flex"})
+        return (html.Span(msg), {"display": "flex"})
 
     # ---- mostrar/ocultar la configuración solar avanzada ----
     @app.callback(
@@ -405,14 +404,14 @@ def register_callbacks(app, services):
                 "export": r.export_surplus_mw,
             } for r in resultados]
 
-            msg = f"✓ Corrida completa: {len(data)} instantes simulados (run {run['run_id'][:8]}…)."
+            msg = f"Corrida completa: {len(data)} instantes simulados (run {run['run_id'][:8]}…)."
             msg += _aviso_irradiacion(irr)
             msg += _aviso_sin_solucion(resultados)
             # El slider vuelve a la hora 0: si no, una corrida más corta que la
             # anterior dejaba el cursor en una hora que ya no existe.
             return data, msg, 0
         except Exception as exc:  # noqa: BLE001
-            return None, f"⚠ Error: {exc}", 0
+            return None, _error(f"Error: {exc}"), 0
 
     # ---- actualizar vista según store + hora ----
     @app.callback(
@@ -461,16 +460,16 @@ def register_callbacks(app, services):
     def _mensaje(fuente: str, r: dict) -> str:
         """Traduce el dict que devuelve el servicio de sync a una línea legible."""
         if not r.get("ok"):
-            return f"⚠ {fuente}: {r.get('error', 'error desconocido')}"
+            return _error(f"{fuente}: {r.get('error', 'error desconocido')}")
         if "codigo" in r:
             estado = "ya estaba en caché" if r.get("cacheada") else "descargada"
-            return f"✓ {fuente}: {r['codigo']} {estado}."
+            return f"{fuente}: {r['codigo']} {estado}."
         if "registros" in r:
             extra = ""
             if r.get("descartados"):
                 extra = f" ({r['descartados']} registros descartados por formato)"
-            return f"✓ {fuente}: {r['registros']} horas guardadas{extra}."
-        return f"✓ {fuente}: listo."
+            return f"{fuente}: {r['registros']} horas guardadas{extra}."
+        return f"{fuente}: listo."
 
     @app.callback(
         Output("db-sync-status", "children"),
@@ -495,8 +494,8 @@ def register_callbacks(app, services):
             if disp == "db-purgar":
                 antes = simulation_service.sim_repo.purgar()
                 mb = antes["bytes"] / (1024 * 1024)
-                return (f"✓ Caché de resultados vaciada: {antes['instantes']} instantes y "
+                return (f"Caché de resultados vaciada: {antes['instantes']} instantes y "
                         f"{antes['corridas']} corridas ({mb:.1f} MB). Volvé a correr la simulación.")
         except Exception as exc:  # noqa: BLE001
-            return f"⚠ Error: {exc}"
+            return _error(f"Error: {exc}")
         return ""

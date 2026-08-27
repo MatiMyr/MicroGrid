@@ -231,6 +231,8 @@ textarea.code::selection { background: var(--accent-soft); }
 }
 .btn-primary:hover { filter: brightness(1.05); border-color: var(--accent); }
 .btn-sm { padding: 6px 11px; font-size: 12.5px; }
+/* Botón de un solo carácter (quitar): cuadrado, para que no parezca texto. */
+.btn-icon { padding: 0; width: 30px; height: 30px; font-size: 17px; line-height: 1; }
 
 /* ---------- Dropdown (dcc.Dropdown, Dash 4) ----------
    Dash 4 reescribió dcc.Dropdown: ya no es react-select v1 (.Select-control,
@@ -360,16 +362,6 @@ details.acc > summary:hover { background: var(--surface-2); }
   font-weight: 550;
   box-shadow: var(--shadow);
 }
-.sitewide-banner .sw-icon {
-  font-size: 16px;
-  line-height: 1;
-  color: #b8860b;
-}
-@media (prefers-color-scheme: dark) {
-  :root:where(:not([data-theme="light"])) .sitewide-banner .sw-icon { color: #fab219; }
-}
-:root[data-theme="dark"] .sitewide-banner .sw-icon { color: #fab219; }
-
 /* ---------- Status line ---------- */
 .status {
   min-height: 20px; font-size: 13px; font-weight: 550;
@@ -378,6 +370,12 @@ details.acc > summary:hover { background: var(--surface-2); }
   border: 1px solid var(--border);
 }
 .status:empty { display: none; }
+/* El error se distingue por color, no por un glifo de advertencia. */
+.status .status-error { color: var(--critical); }
+.status:has(.status-error) {
+  background: rgba(208, 59, 59, 0.07);
+  border-color: rgba(208, 59, 59, 0.35);
+}
 
 /* ---------- Resumen (pre) ---------- */
 pre.summary {
@@ -413,7 +411,14 @@ pre.summary {
 .legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 14px 2px; font-size: 12px; color: var(--ink-2); }
 .legend .item { display: flex; align-items: center; gap: 6px; }
 .legend .dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
-.legend .badge { font-size: 13px; line-height: 1; display: inline-block; }
+.legend .badge {
+  font-size: 11px; font-weight: 700; line-height: 1;
+  display: inline-grid; place-items: center;
+  min-width: 16px; height: 16px; padding: 0 3px;
+  border-radius: 4px;
+  background: var(--surface-2); border: 1px solid var(--border-str);
+  color: var(--ink-2);
+}
 
 /* ---------- Slider ---------- */
 .rc-slider-track { background: var(--accent) !important; }

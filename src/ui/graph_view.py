@@ -17,9 +17,12 @@ _BUS_SIN_SIMULAR, _LINEA_SIN_SIMULAR = "#2a78d6", "#90a4ae"
 # Escala geo -> píxeles.
 _SCALE = 34.0
 
-# Emojis de los elementos conectados, mostrados como badges sobre el bus
-# (en vez de nodos aparte) para que el grafo escale a redes grandes.
-_BADGE = {"sgen": "☀", "storage": "🔋", "load": "🏠", "ext_grid": "🔌"}
+# Inicial de cada clase de elemento conectado, mostrada como badge sobre el bus
+# (en vez de nodos aparte) para que el grafo escale a redes grandes. Son letras
+# y no emojis porque la etiqueta de Cytoscape es texto plano: una letra hereda
+# el color y el cuerpo del nodo, se lee a cualquier zoom y no mete color ajeno
+# a la paleta. La leyenda del grafo traduce cada inicial.
+_BADGE = {"sgen": "S", "storage": "B", "load": "C", "ext_grid": "R"}
 
 
 def pixel_to_geo(x: float, y: float) -> tuple[float, float]:
@@ -111,12 +114,12 @@ def _conteos_por_bus(net) -> Dict[str, Dict[int, int]]:
 
 
 def _badges(conteos: Dict[str, Dict[int, int]], bus_idx: int) -> str:
-    """Emojis de los elementos del bus, con su cantidad si hay más de uno."""
+    """Iniciales de los elementos del bus, cada una con su cantidad ("S1 C2")."""
     partes = []
-    for clase, emoji in _BADGE.items():
+    for clase, inicial in _BADGE.items():
         n = conteos[clase].get(bus_idx, 0)
         if n:
-            partes.append(f"{emoji}{n}" if n > 1 else emoji)
+            partes.append(f"{inicial}{n}")
     return " ".join(partes)
 
 
@@ -279,12 +282,12 @@ STYLESHEET = [
 LEGEND_NODES = [
     ("#2a78d6", "Bus (sin simular)"),
 ]
-# Badges (emoji sobre el bus) — se renderizan como texto, no como punto de color.
+# Badges (inicial sobre el bus) — se renderizan como texto, no como punto de color.
 LEGEND_BADGES = [
-    ("☀", "Solar"),
-    ("🔋", "Batería"),
-    ("🏠", "Carga"),
-    ("🔌", "Red externa"),
+    ("S", "Solar"),
+    ("B", "Batería"),
+    ("C", "Carga"),
+    ("R", "Red externa"),
 ]
 LEGEND_STATUS = [
     ("#0ca30c", "Tensión sana (±5%)"),

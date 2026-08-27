@@ -15,7 +15,7 @@ from domain.entities import TIPOS_CARGA
 from domain.network_model import Battery, Bus, ExternalGrid, Line, Load, SolarPanel
 from repositories.json_net_repository import NombreDuplicadoError
 from ui.graph_view import STYLESHEET, geo_desde_pixel, net_to_elements
-from ui.widgets import campo as _campo, leyenda
+from ui.widgets import campo as _campo, error as _error, leyenda
 
 
 def _num(value, default=0.0):
@@ -56,8 +56,8 @@ _DET_CAMPOS = {
     "storage": ["p_mw", "q_mvar", "max_e_mwh", "soc_percent", "scaling"],
     "ext_grid": ["vm_pu", "va_degree"],
 }
-_DET_ETIQ = {"load": ("Cargas", "🏠"), "sgen": ("Solar", "☀"),
-             "storage": ("Baterías", "🔋"), "ext_grid": ("Red externa", "🔌")}
+_DET_ETIQ = {"load": "Cargas", "sgen": "Solar",
+             "storage": "Baterías", "ext_grid": "Red externa"}
 
 
 def _dfield(label, id_dict, value, tipo="number"):
@@ -83,7 +83,7 @@ def _detail_panel():
         [
             html.Div(
                 [html.Button("← Volver", id="edd-back", className="btn btn-sm"),
-                 html.Button("🗑 Borrar bus", id="edd-delbus", className="btn btn-sm",
+                 html.Button("Borrar bus", id="edd-delbus", className="btn btn-sm",
                              style={"color": "var(--critical)", "borderColor": "var(--critical)"})],
                 className="row", style={"justifyContent": "space-between"},
             ),
@@ -110,10 +110,10 @@ def _detail_body(det):
             _dfield("Pos Y", {"role": "detf", "kind": "pos", "idx": bidx, "field": "y"}, det["y"]),
         ]),
     ]
-    for kind, (titulo, emoji) in _DET_ETIQ.items():
+    for kind, titulo in _DET_ETIQ.items():
         hijos.append(html.Div(
-            [html.Span(f"{emoji}  {titulo}", className="section-title", style={"margin": 0}),
-             html.Button("＋ Agregar", id={"role": "detadd", "kind": kind}, className="btn btn-sm")],
+            [html.Span(titulo, className="section-title", style={"margin": 0}),
+             html.Button("Agregar", id={"role": "detadd", "kind": kind}, className="btn btn-sm")],
             className="row", style={"justifyContent": "space-between", "marginTop": "12px"},
         ))
         if not det[kind]:
@@ -133,8 +133,10 @@ def _detail_body(det):
                     {"role": "detf", "kind": "load", "idx": el["idx"], "field": "perfil_tipo"},
                     el.get("perfil_tipo", TIPOS_CARGA[0]), TIPOS_CARGA))
             campos.append(html.Div(
-                html.Button("🗑", id={"role": "detdel", "kind": kind, "idx": el["idx"]},
-                            className="btn btn-sm", style={"color": "var(--critical)"}),
+                html.Button("×", id={"role": "detdel", "kind": kind, "idx": el["idx"]},
+                            title="Quitar este elemento",
+                            className="btn btn-sm btn-icon",
+                            style={"color": "var(--critical)"}),
                 className="field", style={"flex": "0 0 auto", "justifyContent": "flex-end"}))
             hijos.append(html.Div(campos, className="row",
                                   style={"borderLeft": "2px solid var(--accent)", "paddingLeft": "8px",
@@ -154,7 +156,7 @@ def layout():
                             html.H3("Editor de red"),
                             html.P("Cargá, editá y guardá la microgrid. Tocá un bus en el grafo para ver y editar sus datos.",
                                    className="card-sub"),
-                            _acc("📥  Cargar red", [
+                            _acc("Cargar red", [
                                 _fila([_btn("Red de ejemplo", "ed-btn-ejemplo")]),
                                 _fila([
                                     _campo("Código SimBench", "ed-simbench-code", "1-LV-rural1--0-no_sw", tipo="text"),
@@ -165,14 +167,14 @@ def layout():
                                                           searchable=True),
                                              className="field", style={"minWidth": "180px"}),
                                     _btn("Abrir", "ed-btn-guardada"),
-                                    html.Button("🗑 Borrar", id="ed-btn-borrar", n_clicks=0,
+                                    html.Button("Borrar", id="ed-btn-borrar", n_clicks=0,
                                                 className="btn",
                                                 style={"color": "var(--critical)",
                                                        "borderColor": "var(--critical)"}),
                                 ]),
                                 dcc.ConfirmDialog(id="ed-confirm-borrar"),
                             ], open=True),
-                            _acc("✏️  Agregar elementos (gráfico)", [
+                            _acc("Agregar elementos (gráfico)", [
                                 _fila([
                                     _campo("Bus vn_kv", "ed-bus-vn", 0.4),
                                     _campo("Nombre", "ed-bus-name", "", tipo="text"),
@@ -212,7 +214,7 @@ def layout():
                                     _btn("Quitar", "ed-btn-rm"),
                                 ]),
                             ]),
-                            _acc("🐍  Editor de código Python", [
+                            _acc("Editor de código Python", [
                                 html.P("Muestra la red actual: editá los parámetros y ejecutá. También podés "
                                        "agregar elementos con model.add_… (Bus, Line, Load, SolarPanel, Battery, "
                                        "ExternalGrid, Transformer).",
@@ -224,7 +226,7 @@ def layout():
                                     _btn("Regenerar desde la red", "ed-btn-code-refresh"),
                                 ], className="row", style={"marginTop": "8px"}),
                             ]),
-                            _acc("💾  Guardar red", [
+                            _acc("Guardar red", [
                                 _fila([
                                     _campo("Nombre", "ed-save-name", "Mi red", tipo="text"),
                                     _btn("Guardar nueva", "ed-btn-save", primary=True),
@@ -491,9 +493,9 @@ def register_callbacks(app, services):
                 if disparador in _LIMPIAN_SELECCION:
                     seleccion = None
             except NombreDuplicadoError as exc:
-                status = f"⚠ {exc} — elegí otro nombre."
+                status = _error(f"{exc} — elegí otro nombre.")
             except Exception as exc:  # noqa: BLE001
-                status = f"⚠ Error: {exc}"
+                status = _error(f"Error: {exc}")
 
         if disparador in _REHACEN_TOPOLOGIA:
             network_service.selected_bus = None
@@ -613,7 +615,7 @@ def register_callbacks(app, services):
         except Exception as exc:  # noqa: BLE001
             det = ns.detalle_bus(sel)
             titulo = f"Bus {sel} — {det['name'] if det else ''}"
-            return (_HIDE, _SHOW, titulo, _detail_body(det) if det else [], f"⚠ Error: {exc}",
+            return (_HIDE, _SHOW, titulo, _detail_body(det) if det else [], _error(f"Error: {exc}"),
                     _refresh_graph(), ns.generar_codigo(), _resumen_actual())
 
         return nada
