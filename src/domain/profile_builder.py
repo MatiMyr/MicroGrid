@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional
 
+from domain.epocas import EPOCA_POR_DEFECTO
 from domain.tiempo import hora_del_dia
 
 
@@ -98,22 +99,37 @@ class ProfileBuilder:
 
     # ---- solar -----------------------------------------------------------
     def build_solar_profile(
-        self, lat: float = -31.4, lon: float = -60.5, horas: int = 24
+        self,
+        lat: float = -31.4,
+        lon: float = -60.5,
+        horas: int = 24,
+        epoca: str = EPOCA_POR_DEFECTO,
+        usar_nasa: bool = True,
     ) -> List[float]:
-        """Perfil solar normalizado (0..1) por hora.
+        """Perfil solar típico normalizado (0..1) por hora, para una época del año.
 
-        Usa la irradiación de NASA cacheada para la ubicación; si no hay datos,
-        genera una campana diurna sintética (0 de noche, pico al mediodía).
+        Con ``usar_nasa`` usa la irradiación de NASA cacheada para esa ubicación
+        y época —las ventanas de ~3 meses de los últimos años— y la promedia
+        hora a hora del día: el resultado es el día típico de esa época, no el
+        de una fecha puntual.
+
+        Con ``usar_nasa=False`` —el modo básico del Dashboard— ni siquiera mira
+        el caché: devuelve directamente la campana diurna sintética. Es el
+        camino sin descargas ni ubicación, para ver el comportamiento de la red
+        sin depender de una API externa. También es el respaldo cuando se pidió
+        NASA pero no hay datos.
         """
-        forma = self._forma_desde_nasa(lat, lon)
+        forma = self._forma_desde_nasa(lat, lon, epoca) if usar_nasa else None
         if forma is None:
             forma = self._campana_solar()
         return [forma[h % 24] for h in range(horas)]
 
-    def _forma_desde_nasa(self, lat: float, lon: float) -> Optional[List[float]]:
+    def _forma_desde_nasa(
+        self, lat: float, lon: float, epoca: str = EPOCA_POR_DEFECTO
+    ) -> Optional[List[float]]:
         if self._irradiacion_repo is None:
             return None
-        serie = self._irradiacion_repo.cargar(lat, lon)
+        serie = self._irradiacion_repo.cargar(lat, lon, epoca)
         if not serie:
             return None
         suma = [0.0] * 24

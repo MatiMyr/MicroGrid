@@ -8,6 +8,7 @@ from typing import Optional
 
 from app.network_service import NetworkService
 from domain.entities import TIPO_CARGA_POR_DEFECTO
+from domain.epocas import EPOCA_POR_DEFECTO
 from domain.profile_builder import ProfileBuilder
 from domain.simulation_engine import SimEngine, SimulationResult
 from repositories.json_simulation_repository import JsonSimRepository
@@ -123,12 +124,16 @@ class SimulationService:
         escenario: str = "",
         lat: float = -31.4,
         lon: float = -60.5,
+        epoca: str = EPOCA_POR_DEFECTO,
+        usar_nasa: bool = True,
     ) -> dict:
         """Corre ``horas`` instantes encadenando el SoC y devuelve la corrida.
 
         Cada hora escala **cada carga según su propio tipo de consumidor** (el
         que tiene asignado en la red) y toda la generación solar según el perfil
-        de irradiación, simula y cachea por hash. Devuelve
+        de irradiación **típico de la época del año pedida** (o la campana
+        sintética, si ``usar_nasa`` es falso), simula y cachea
+        por hash. Devuelve
         ``{"run_id": ..., "resultados": [SimulationResult, ...]}``.
 
         El SoC inicial de la primera hora es el que cada batería trae en la red
@@ -154,7 +159,8 @@ class SimulationService:
         # red puede mezclar viviendas, comercios e industria con curvas distintas.
         tipos = set(network.tipos_de_carga().values()) or {TIPO_CARGA_POR_DEFECTO}
         perfiles_carga = {t: self.profile_builder.build_load_profile(t, horas) for t in tipos}
-        perfil_solar = self.profile_builder.build_solar_profile(lat, lon, horas)
+        perfil_solar = self.profile_builder.build_solar_profile(
+            lat, lon, horas, epoca, usar_nasa)
 
         # El SoC inicial de la primera hora es el que cada batería trae en la
         # red; sólo a partir de la segunda se escribe el encadenado.

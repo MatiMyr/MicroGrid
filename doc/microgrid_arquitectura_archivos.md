@@ -287,7 +287,7 @@ Guarda y lee los datos de demanda horaria de CAMMESA en archivos JSON bajo `data
 #### `json_irradiacion_repository.py`
 **Módulo conceptual:** Irradiación Repo
 
-Guarda y lee los datos de irradiación solar de NASA POWER en archivos JSON bajo `data/cache/nasa/`. Los datos se organizan por ubicación geográfica y período de tiempo. Cuando alguien le pide datos de una zona y un período, devuelve lo que tiene en el caché.
+Guarda y lee los datos de irradiación solar de NASA POWER en archivos JSON bajo `data/cache/nasa/`. Los datos se organizan por ubicación geográfica **y época del año** (`{lat}_{lon}_{epoca}.json`): cada archivo junta las ventanas de ~3 meses de los últimos años centradas en esa época, y el `ProfileBuilder` las promedia hora a hora para obtener el día solar típico. Las 8 épocas —las cuatro estaciones del hemisferio sur más sus intermedios— se definen en `domain/epocas.py`.
 
 | Tipo    | Archivo                 | Descripción                                                                    |
 | ------- | ----------------------- | ------------------------------------------------------------------------------ |

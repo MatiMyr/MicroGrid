@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional
 
 import requests
 
+from domain import epocas as epocas_mod
 from domain.tiempo import a_local, desde_utc, iso_local
 
 from repositories.json_demanda_repository import JsonDemandaRepository
@@ -65,13 +67,11 @@ class DataSyncService:
             return {"ok": False, "error": str(exc), "codigo": codigo}
 
     # ---- NASA POWER ------------------------------------------------------
-    def sync_nasa(
-        self, lat: float, lon: float, start: str, end: str
-    ) -> dict:
-        """Descarga irradiación horaria de NASA POWER para una ubicación/período.
+    def _descargar_rango(self, lat: float, lon: float, start: str, end: str) -> dict:
+        """Pide a NASA POWER un rango ``AAAAMMDD`` y devuelve la serie horaria.
 
-        ``start`` y ``end`` en formato ``YYYYMMDD``. Guarda la serie
-        ``timestamp ISO local -> W/m2`` en el repositorio de irradiación.
+        Devuelve ``{"ok": True, "serie": {...}}`` o ``{"ok": False, "error": ...}``:
+        no toca el caché, de eso se ocupa quien lo llama.
         """
         for etiqueta, valor in (("start", start), ("end", end)):
             try:
@@ -90,6 +90,12 @@ class DataSyncService:
             "start": start,
             "end": end,
             "format": "JSON",
+            # Sin esto NASA POWER responde en LST (hora solar local, centrada en
+            # el mediodía solar del punto): el código de abajo la interpretaba
+            # como UTC y le restaba 3 h, corriendo todo el perfil solar unas
+            # cuatro horas hacia la mañana. Pedirlo en UTC hace que la
+            # conversión a hora argentina sea la correcta.
+            "time-standard": "UTC",
         }
         try:
             resp = requests.get(NASA_POWER_URL, params=params, timeout=self.timeout)
@@ -111,12 +117,75 @@ class DataSyncService:
             # NASA POWER entrega horas UTC: se guarda en hora local argentina,
             # que es el huso en el que la simulación arma sus perfiles horarios.
             serie[iso_local(desde_utc(utc))] = float(valor)
+        return {"ok": True, "serie": serie}
+
+    def sync_nasa(
+        self,
+        lat: float,
+        lon: float,
+        epoca: str = epocas_mod.EPOCA_POR_DEFECTO,
+        anios: int = epocas_mod.ANIOS_PROMEDIO,
+    ) -> dict:
+        """Descarga la irradiación típica de una ubicación para una época del año.
+
+        Baja una ventana de ~3 meses centrada en la época por cada uno de los
+        últimos ``anios`` años y las guarda juntas en el caché de esa
+        ubicación/época: el promedio hora a hora de todas ellas es lo que después
+        le da forma al perfil solar.
+
+        Las ventanas se piden **en paralelo**: NASA POWER tarda del orden de tres
+        minutos en servir 91 días horarios, así que en serie la primera corrida
+        de cada época bloqueaba la UI casi diez. Son pedidos independientes a la
+        misma API y el costo es un hilo por año.
+
+        Basta con que una ventana llegue para considerar la descarga exitosa; si
+        fallan todas se informa el error de la última sin propagar la excepción.
+        """
+        try:
+            rangos = epocas_mod.ventanas(epoca, anios)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+        with ThreadPoolExecutor(max_workers=len(rangos)) as pool:
+            respuestas = list(pool.map(
+                lambda r: self._descargar_rango(lat, lon, r[0], r[1]), rangos))
+
+        serie: dict[str, float] = {}
+        ventanas_ok = 0
+        ultimo_error = ""
+        for r in respuestas:
+            if r.get("ok"):
+                serie.update(r["serie"])
+                ventanas_ok += 1
+            else:
+                ultimo_error = r.get("error", "error desconocido")
 
         if not serie:
-            return {"ok": False, "error": "La respuesta de NASA POWER no trajo horas utilizables.",
-                    "registros": 0}
-        self.irradiacion_repo.guardar(lat, lon, serie)
-        return {"ok": True, "registros": len(serie)}
+            return {"ok": False, "registros": 0, "epoca": epoca,
+                    "error": ultimo_error or "La respuesta de NASA POWER no trajo horas utilizables."}
+
+        self.irradiacion_repo.guardar(lat, lon, serie, epoca)
+        return {"ok": True, "registros": len(serie), "epoca": epoca,
+                "anios": ventanas_ok, "anios_pedidos": len(rangos)}
+
+    def asegurar_irradiacion(
+        self,
+        lat: float,
+        lon: float,
+        epoca: str = epocas_mod.EPOCA_POR_DEFECTO,
+        anios: int = epocas_mod.ANIOS_PROMEDIO,
+    ) -> dict:
+        """Descarga la irradiación sólo si no está cacheada para ese punto y época.
+
+        Igual que ``sync_simbench``, evita golpear la API en cada corrida: el
+        caché se indexa por lat/lon/época, así que una vez bajada la serie se
+        reutiliza. Para volver a descargarla hay que borrar el archivo del punto.
+        """
+        if self.irradiacion_repo.existe(lat, lon, epoca):
+            return {"ok": True, "cacheada": True, "epoca": epoca}
+        r = self.sync_nasa(lat, lon, epoca, anios)
+        r["cacheada"] = False
+        return r
 
     # ---- CAMMESA ---------------------------------------------------------
     def sync_cammesa(self, region: str = "GBA") -> dict:
@@ -180,14 +249,13 @@ class DataSyncService:
         self,
         lat: float = -31.4,
         lon: float = -60.5,
-        start: str = "20230101",
-        end: str = "20230107",
+        epoca: str = epocas_mod.EPOCA_POR_DEFECTO,
         region: str = "LITORAL",
         codigo_simbench: str = "1-LV-rural1--0-no_sw",
     ) -> dict:
         """Dispara la sincronización de las tres fuentes y devuelve un resumen."""
         return {
             "simbench": self.sync_simbench(codigo_simbench),
-            "nasa": self.sync_nasa(lat, lon, start, end),
+            "nasa": self.sync_nasa(lat, lon, epoca),
             "cammesa": self.sync_cammesa(region),
         }

@@ -7,14 +7,13 @@ Dashboard viven en este archivo.
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
-
 import dash_cytoscape as cyto
 import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html
 from plotly.subplots import make_subplots
 
 from app.simulation_service import SimulationService
+from domain import epocas as epocas_mod
 from ui import theme
 from app.data_sync_service import CAMMESA_REGIONES
 from ui.graph_view import LEGEND_BADGES, LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements
@@ -50,28 +49,41 @@ def _campo(label, id_, value, tipo="number", **kw):
     )
 
 
-def _dropdown(label, id_, options, value):
+def _dropdown(label, id_, options, value, searchable=False):
+    """Desplegable de un campo del panel de control.
+
+    Sin buscador por omisión: todos los desplegables de acá tienen a lo sumo
+    ocho opciones, y el buscador que dcc.Dropdown trae de fábrica sólo agrega
+    ruido. Se activa con searchable=True donde la lista pueda crecer.
+    """
     return html.Div(
         [html.Label(label),
          dcc.Dropdown(id=id_, options=options, value=value, clearable=False,
-                      className="dash-dropdown")],
+                      searchable=searchable)],
         className="field", style={"minWidth": "150px"},
     )
 
 
-def _rango_nasa_por_defecto() -> tuple[str, str]:
-    """Semana equivalente del año pasado, en formato ``AAAAMMDD``.
+def _aviso_irradiacion(r: dict) -> str:
+    """Nota sobre la irradiación que se intentó bajar antes de la corrida.
 
-    NASA POWER publica sus datos horarios con varios meses de demora, así que
-    pedir "la semana pasada" devuelve vacío. Una semana del año anterior está
-    siempre disponible y además es estacionalmente comparable con hoy.
+    ``r`` es ``None`` cuando la corrida ni siquiera pidió datos reales (modo
+    básico). El silencio es la señal de "todo bien": con NASA sólo se avisa
+    cuando la serie se acaba de descargar o cuando no se pudo y el perfil
+    quedó sintético.
     """
-    hasta = date.today() - timedelta(days=365)
-    desde = hasta - timedelta(days=6)
-    return desde.strftime("%Y%m%d"), hasta.strftime("%Y%m%d")
-
-
-_RANGO_NASA = _rango_nasa_por_defecto()
+    if r is None:
+        return " Perfil solar sintético (configuración solar avanzada sin marcar)."
+    if r.get("cacheada"):
+        return ""
+    epoca = epocas_mod.etiqueta(r.get("epoca", ""))
+    if r.get("ok"):
+        anios, pedidos = r.get("anios", 0), r.get("anios_pedidos", 0)
+        falta = "" if anios == pedidos else f", {pedidos - anios} sin datos"
+        return (f" Irradiación NASA descargada para {epoca}: {r.get('registros', 0)} horas "
+                f"de {anios} año(s){falta}.")
+    return (f" ⚠ No se pudo descargar la irradiación de NASA para {epoca} "
+            f"({r.get('error', 'error desconocido')}): el perfil solar es sintético.")
 
 
 def _aviso_sin_solucion(resultados) -> str:
@@ -127,13 +139,40 @@ def layout():
                                        {"label": "Flujo óptimo (runopp)", "value": "opp"}], "pp"),
                             _campo("Horas", "db-horas", 24,
                                    min=SimulationService.MIN_HORAS, max=SimulationService.MAX_HORAS),
-                            _campo("Lat", "db-lat", -31.4),
-                            _campo("Lon", "db-lon", -60.5),
                             html.Div(html.Button("▶  Correr simulación", id="db-btn-run", n_clicks=0,
                                                  className="btn btn-primary"),
                                      className="field", style={"flex": "0 0 auto", "justifyContent": "flex-end"}),
                         ],
                         className="row",
+                    ),
+                    # ---- Configuración solar: básica (campana) o avanzada (NASA) ----
+                    dcc.Checklist(
+                        id="db-solar-avanzada",
+                        options=[{"label": "Configuración solar avanzada", "value": "on"}],
+                        value=[], className="check-inline",
+                    ),
+                    html.P("Sin marcar, el perfil solar es una campana diurna sintética —cero de "
+                           "noche, pico al mediodía— igual en toda corrida. Alcanza para ver cómo "
+                           "responde la red y no depende de ninguna descarga.",
+                           id="db-solar-basico", className="card-sub"),
+                    html.Div(
+                        [
+                            html.Div(
+                                [_campo("Lat", "db-lat", -31.4),
+                                 _campo("Lon", "db-lon", -60.5),
+                                 _dropdown("Época del año", "db-epoca", epocas_mod.opciones(),
+                                           epocas_mod.EPOCA_POR_DEFECTO)],
+                                className="row",
+                            ),
+                            html.P(f"Con datos reales: al correr se baja de NASA POWER la irradiación de "
+                                   f"los {epocas_mod.SEMIVENTANA_DIAS * 2 // 30} meses centrados en esa "
+                                   f"época, de los últimos {epocas_mod.ANIOS_PROMEDIO} años, y se promedia "
+                                   f"hora a hora para obtener el día típico. La primera descarga de cada "
+                                   f"ubicación y época tarda unos minutos; después sale del caché. Si "
+                                   f"falla, la corrida sigue con la campana sintética y se avisa.",
+                                   className="card-sub", style={"marginTop": "10px"}),
+                        ],
+                        id="db-solar-campos", style={"display": "none"},
                     ),
                     dcc.Loading(html.Div(id="db-status", className="status", style={"marginTop": "12px"}),
                                 type="dot", color=theme.SERIES["blue"]),
@@ -204,16 +243,6 @@ def layout():
                                    "Las series se guardan en hora local argentina.",
                                    className="card-sub"),
                             html.Div(
-                                [_campo("Irradiación desde", "db-nasa-desde", _RANGO_NASA[0], tipo="text"),
-                                 _campo("hasta", "db-nasa-hasta", _RANGO_NASA[1], tipo="text"),
-                                 html.Button("NASA POWER (irradiación)", id="db-sync-nasa", n_clicks=0,
-                                             className="btn btn-sm")],
-                                className="row",
-                            ),
-                            html.P("Formato AAAAMMDD. NASA POWER publica con unos meses de demora: "
-                                   "por eso el rango por defecto es la misma semana del año pasado.",
-                                   className="card-sub"),
-                            html.Div(
                                 [_campo("Código SimBench", "db-simbench-code", "1-LV-rural1--0-no_sw", tipo="text"),
                                  html.Button("Descargar red base", id="db-sync-simbench", n_clicks=0,
                                              className="btn btn-sm")],
@@ -281,6 +310,18 @@ def register_callbacks(app, services):
         return ([html.Span("⚠", className="sw-icon"), html.Span(msg)],
                 {"display": "flex"})
 
+    # ---- mostrar/ocultar la configuración solar avanzada ----
+    @app.callback(
+        Output("db-solar-campos", "style"),
+        Output("db-solar-basico", "style"),
+        Input("db-solar-avanzada", "value"),
+    )
+    def alternar_solar_avanzada(valor):
+        """Los campos siguen en el DOM al ocultarse: la corrida los lee igual."""
+        if valor:
+            return {"display": "block"}, {"display": "none"}
+        return {"display": "none"}, {}
+
     # ---- correr simulación ----
     @app.callback(
         Output("db-store", "data"),
@@ -289,14 +330,25 @@ def register_callbacks(app, services):
         Input("db-btn-run", "n_clicks"),
         State("db-mode", "value"), State("db-horas", "value"),
         State("db-lat", "value"), State("db-lon", "value"),
+        State("db-epoca", "value"), State("db-solar-avanzada", "value"),
         prevent_initial_call=True,
     )
-    def correr(_n, mode, horas, lat, lon):
+    def correr(_n, mode, horas, lat, lon, epoca, avanzada):
         try:
+            avanzada = bool(avanzada)
+            lat_f = float(_valor(lat, -31.4))
+            lon_f = float(_valor(lon, -60.5))
+            epoca = str(_valor(epoca, epocas_mod.EPOCA_POR_DEFECTO))
+            # Sin configuración avanzada no se toca la red ni el caché: la
+            # corrida usa la campana sintética. Con ella, la irradiación se baja
+            # acá; si ya está cacheada no hay descarga, y si falla la corrida
+            # sigue igual con el perfil sintético.
+            irr = (data_sync_service.asegurar_irradiacion(lat_f, lon_f, epoca)
+                   if avanzada else None)
             run = simulation_service.run_corrida(
                 horas=_valor(horas, 24), mode=mode or "pp",
                 nombre_red=network_service.nombre_guardada(network_service.red_id) or "actual",
-                lat=float(_valor(lat, -31.4)), lon=float(_valor(lon, -60.5)),
+                lat=lat_f, lon=lon_f, epoca=epoca, usar_nasa=avanzada,
             )
             resultados = run["resultados"]
             data = [{
@@ -309,6 +361,7 @@ def register_callbacks(app, services):
             } for r in resultados]
 
             msg = f"✓ Corrida completa: {len(data)} instantes simulados (run {run['run_id'][:8]}…)."
+            msg += _aviso_irradiacion(irr)
             msg += _aviso_sin_solucion(resultados)
             # El slider vuelve a la hora 0: si no, una corrida más corta que la
             # anterior dejaba el cursor en una hora que ya no existe.
@@ -418,16 +471,13 @@ def register_callbacks(app, services):
     @app.callback(
         Output("db-sync-status", "children"),
         Input("db-sync-simbench", "n_clicks"),
-        Input("db-sync-nasa", "n_clicks"),
         Input("db-sync-cammesa", "n_clicks"),
         Input("db-purgar", "n_clicks"),
         State("db-region", "value"),
-        State("db-lat", "value"), State("db-lon", "value"),
-        State("db-nasa-desde", "value"), State("db-nasa-hasta", "value"),
         State("db-simbench-code", "value"),
         prevent_initial_call=True,
     )
-    def sincronizar(_s, _n, _c, _p, region, lat, lon, desde, hasta, simbench_code):
+    def sincronizar(_s, _c, _p, region, simbench_code):
         disp = ctx.triggered_id
         try:
             if disp == "db-sync-simbench":
@@ -435,12 +485,6 @@ def register_callbacks(app, services):
                 # sin importar qué red hubiera pedido el usuario.
                 return _mensaje("SimBench", data_sync_service.sync_simbench(
                     str(_valor(simbench_code, "1-LV-rural1--0-no_sw")).strip()))
-            if disp == "db-sync-nasa":
-                return _mensaje("NASA POWER", data_sync_service.sync_nasa(
-                    float(_valor(lat, -31.4)), float(_valor(lon, -60.5)),
-                    str(_valor(desde, _RANGO_NASA[0])).strip(),
-                    str(_valor(hasta, _RANGO_NASA[1])).strip(),
-                ))
             if disp == "db-sync-cammesa":
                 return _mensaje("CAMMESA", data_sync_service.sync_cammesa(
                     str(_valor(region, "LITORAL"))))
