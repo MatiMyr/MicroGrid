@@ -1,6 +1,6 @@
 # Cambio pendiente: manejo de errores de convergencia (runpp / runopp)
 
-**Archivo:** `src/domain/simulation_engine.py` (`runpp`, `runopp`, líneas ~14-27)
+**Archivo:** `src/domain/simulation_engine.py` (`runpp`, `runopp`, líneas ~22-35)
 
 ## Problema
 

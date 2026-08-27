@@ -1,13 +1,13 @@
 # Cambio pendiente: referenciar la red por id estable en `SimulationResult`
 
-**Archivos:** `src/domain/entities.py` (clase `SimulationResult`), `src/domain/simulation_engine.py` (`_build_result`, `runpp`, `runopp`), `src/app/simulation_service.py` (métodos `run_pp`, `run_opp`, `_run_instante`, `run_periodo`), `src/ui/dashboard.py` (~línea 213), `src/repositories/json_simulation_repository.py` (~línea 82).
+**Archivos:** `src/domain/entities.py` (clase `SimulationResult`), `src/domain/simulation_engine.py` (`_build_result`, `runpp`, `runopp`), `src/app/simulation_service.py` (métodos `run_pp`, `run_opp`, `_run_instante`, `run_corrida`), `src/ui/dashboard.py` (~línea 247), `src/repositories/json_simulation_repository.py` (`guardar_indice_corrida` / `listar_corrida`).
 
 ## Problema
 
 `SimulationResult` guarda **solo el nombre** de la red, no su id estable:
 
 ```python
-# entities.py:110
+# entities.py:152
 nombre_red: str = ""     # guarda el nombre, NO el id de la red
 ```
 
@@ -20,7 +20,7 @@ El id estable ya existe y funciona: `json_net_repository.py` asigna `red_id = uu
 De hecho, en el punto donde se llena el campo el id **está disponible pero se descarta**:
 
 ```python
-# dashboard.py:213
+# dashboard.py:247
 nombre_red=network_service.net_repo.nombre_de(network_service.red_id) or "actual",
 ```
 
@@ -67,7 +67,9 @@ return SimulationResult(
 )
 ```
 
-**3. `simulation_service.py`** — agregar `red_id` a las firmas de `run_pp`, `run_opp`, `_run_instante` y `run_periodo`, y reenviarlo al runner (donde hoy se pasa `nombre_red`).
+**3. `simulation_service.py`** — agregar `red_id` a las firmas de `run_pp`, `run_opp`, `_run_instante` y `run_corrida`, y reenviarlo al runner (donde hoy se pasa `nombre_red`).
+
+> Nota (agosto 2026): `nombre_red` ya no se guarda dentro del archivo del instante — es un metadato **de corrida** y vive en `data/resultados/_corridas/{run_id}.json`. Cuando se implemente este cambio, `red_id` va en ese mismo índice, no en el instante cacheado (que es compartido entre corridas).
 
 **4. `dashboard.py` (~213)** — pasar el id directo (garantizado no nulo por el invariante), en vez de resolver y persistir el nombre:
 

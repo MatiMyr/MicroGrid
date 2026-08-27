@@ -1,6 +1,16 @@
 # Limitación: el scaling se aplica uniforme a toda la red
 
-**Archivos:** `src/domain/network_model.py` (`apply_load_scaling`, `apply_sgen_scaling`, líneas ~122-130) y `src/app/simulation_service.py` (loop de `run_corrida`, líneas ~109-113)
+> **Parcialmente resuelto (agosto de 2026).** El lado de la **carga** ya no es
+> uniforme: `NetworkModel.apply_load_scaling_por_tipo` escribe el factor carga
+> por carga, según el `perfil_tipo` de cada una.
+>
+> **Sigue vigente para la generación solar**: `apply_sgen_scaling` sigue
+> escribiendo un único factor en toda la columna `sgen.scaling`, así que la red
+> se asume espacialmente homogénea en irradiación. El mecanismo para
+> resolverlo ya está disponible (escritura por índice); falta modelar de dónde
+> sale un perfil solar distinto por nodo.
+
+**Archivos:** `src/domain/network_model.py` (`apply_load_scaling`, `apply_sgen_scaling`, líneas ~164-172) y `src/app/simulation_service.py` (loop de `run_corrida`, líneas ~163-167)
 
 ## Problema
 

@@ -13,10 +13,10 @@ Las distribuidoras eléctricas argentinas carecen de una herramienta open source
 
 **Dentro:**
 - Carga de redes SimBench o shapefiles argentinos (datos.gob.ar)
-- Perfiles de demanda horaria (CAMMESA) por tipo de consumidor
+- Perfiles de demanda horaria por tipo de consumidor, configurable carga por carga
 - Generación solar (NASA POWER) y almacenamiento (baterías)
 - Flujo de carga (`runpp`) y flujo óptimo (`runopp`)
-- Indicadores: pérdidas, tensiones, cargabilidad, autosuficiencia, curtailment
+- Indicadores: pérdidas, tensiones, cargabilidad, autosuficiencia, excedente exportado
 - UI Dash con editor gráfico y editor de código embebido
 - Caché local con actualización periódica
 
@@ -35,11 +35,11 @@ Las distribuidoras eléctricas argentinas carecen de una herramienta open source
 | Módulo         | Qué debe hacer                                                                  |
 | -------------- | ------------------------------------------------------------------------------- |
 | Red base       | Cargar desde SimBench o shapefile; editar parámetros gráficamente o por código  |
-| Demanda        | Descargar CAMMESA; construir perfiles residencial / comercial / industrial      |
+| Demanda        | Perfil residencial / comercial / industrial **por carga**; CAMMESA deshabilitado (ver `correcciones_2026-08.md`) |
 | GD Solar       | Agregar paneles (`create_sgen`); dimensionar con irradiación NASA POWER         |
 | Almacenamiento | Agregar baterías (`create_storage`) con perfil de operación configurable        |
 | Simulación     | Ejecutar `runpp` y `runopp`; mostrar resultados por nodo y línea                |
-| Indicadores    | Pérdidas totales, perfil de tensión, cargabilidad, autosuficiencia, curtailment |
+| Indicadores    | Pérdidas totales, perfil de tensión, cargabilidad, autosuficiencia, excedente exportado |
 | Caché          | Actualizar datos externos periódicamente sin intervención manual                |
 
 ### No Funcionales
@@ -63,7 +63,7 @@ Las distribuidoras eléctricas argentinas carecen de una herramienta open source
 | Simulación | pandapower, SimBench |
 | Geodatos | geopandas |
 | UI | Dash + Dash Cytoscape + Plotly |
-| Editor de código | dash-ace o dash-codemirror |
+| Editor de código | `dcc.Textarea` (incluido en Dash) |
 | Procesamiento | pandas, requests |
 | Exploración | Jupyter |
 | Infraestructura | localhost → cloud (TBD) |

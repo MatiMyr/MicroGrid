@@ -5,6 +5,8 @@ from typing import Optional
 
 import requests
 
+from domain.tiempo import a_local, desde_utc, iso_local
+
 from repositories.json_demanda_repository import JsonDemandaRepository
 from repositories.json_irradiacion_repository import JsonIrradiacionRepository
 from repositories.json_simbench_repository import JsonSimbenchRepository
@@ -69,8 +71,17 @@ class DataSyncService:
         """Descarga irradiación horaria de NASA POWER para una ubicación/período.
 
         ``start`` y ``end`` en formato ``YYYYMMDD``. Guarda la serie
-        ``timestamp ISO -> W/m2`` en el repositorio de irradiación.
+        ``timestamp ISO local -> W/m2`` en el repositorio de irradiación.
         """
+        for etiqueta, valor in (("start", start), ("end", end)):
+            try:
+                datetime.strptime(str(valor), "%Y%m%d")
+            except ValueError:
+                return {"ok": False, "error": f"Fecha {etiqueta} inválida: {valor!r} "
+                                              f"(se espera AAAAMMDD)."}
+        if str(start) > str(end):
+            return {"ok": False, "error": f"El rango está invertido: {start} > {end}."}
+
         params = {
             "parameters": "ALLSKY_SFC_SW_DWN",
             "community": "RE",
@@ -90,15 +101,20 @@ class DataSyncService:
 
         serie: dict[str, float] = {}
         for clave, valor in crudo.items():
-            # clave: YYYYMMDDHH ; valor: W/m2 (-999 = faltante)
+            # clave: YYYYMMDDHH en UTC ; valor: W/m2 (-999 = faltante)
             if valor is None or float(valor) <= -900:
                 valor = 0.0
             try:
-                ts = datetime.strptime(clave, "%Y%m%d%H").isoformat()
+                utc = datetime.strptime(clave, "%Y%m%d%H")
             except ValueError:
                 continue
-            serie[ts] = float(valor)
+            # NASA POWER entrega horas UTC: se guarda en hora local argentina,
+            # que es el huso en el que la simulación arma sus perfiles horarios.
+            serie[iso_local(desde_utc(utc))] = float(valor)
 
+        if not serie:
+            return {"ok": False, "error": "La respuesta de NASA POWER no trajo horas utilizables.",
+                    "registros": 0}
         self.irradiacion_repo.guardar(lat, lon, serie)
         return {"ok": True, "registros": len(serie)}
 
@@ -123,21 +139,41 @@ class DataSyncService:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)}
 
+        if not isinstance(registros, list):
+            return {"ok": False, "error": "Respuesta inesperada de CAMMESA (no es una lista).",
+                    "registros": 0}
+
         serie: dict[str, float] = {}
+        descartados = 0
         for item in registros:
+            if not isinstance(item, dict):
+                descartados += 1
+                continue
             fecha = item.get("fecha")
             dem = item.get("dem")
             if fecha is None or dem is None:
+                descartados += 1
                 continue
             try:
-                ts = datetime.fromisoformat(str(fecha).replace("Z", "+00:00")).isoformat()
+                # CAMMESA publica en hora local argentina; si el timestamp no
+                # trae huso se interpreta como tal, no como UTC.
+                ts = iso_local(a_local(datetime.fromisoformat(str(fecha).replace("Z", "+00:00"))))
             except ValueError:
-                ts = str(fecha)
-            serie[ts] = float(dem)
+                descartados += 1
+                continue
+            try:
+                serie[ts] = float(dem)
+            except (TypeError, ValueError):
+                descartados += 1
 
-        if serie:
-            self.demanda_repo.guardar(region, serie)
-        return {"ok": True, "registros": len(serie)}
+        if not serie:
+            # Sin esto la UI mostraba "éxito" cuando la API cambiaba de formato,
+            # y la simulación seguía cayendo al perfil sintético en silencio.
+            return {"ok": False, "registros": 0, "descartados": descartados,
+                    "error": f"CAMMESA respondió {len(registros)} registros pero ninguno "
+                             f"tenía los campos 'fecha'/'dem' esperados."}
+        self.demanda_repo.guardar(region, serie)
+        return {"ok": True, "registros": len(serie), "descartados": descartados}
 
     # ---- sincronización completa ----------------------------------------
     def sync_all(

@@ -1,6 +1,20 @@
 # Limitación: perfiles de carga vagos y no superponibles
 
-**Archivos:** `src/domain/profile_builder.py` (`build_load_profile`, `_FORMAS_CARGA`, líneas ~9-54) y `src/app/simulation_service.py` (`run_corrida` recibe **un** `tipo_carga`, línea ~82)
+> **Parcialmente resuelto (agosto de 2026).** Lo de "no superponibles" ya no
+> aplica: el tipo de consumidor pasó a ser un atributo **de cada carga**
+> (`net.load.perfil_tipo`), editable en el panel de detalle del Editor, y
+> `run_corrida` arma una curva por cada tipo presente y escala carga por carga.
+> Una misma red puede mezclar viviendas, comercios e industria.
+>
+> La precedencia de CAMMESA también desapareció: su demanda quedó deshabilitada
+> justamente porque, al ser el consumo agregado de una región entera, anulaba el
+> tipo de cada carga. Ver `doc/correcciones_2026-08.md`.
+>
+> **Sigue vigente** lo de "vagos": las tres curvas son formas sintéticas
+> inventadas a mano, no calibradas con datos reales, y se repiten cíclicamente
+> con `forma[h % 24]`.
+
+**Archivos:** `src/domain/profile_builder.py` (`build_load_profile`, `_FORMAS_CARGA`, líneas ~11-60) y `src/app/simulation_service.py` (`run_corrida` recibe **un** `tipo_carga`, línea ~123)
 
 ## Qué tan vaga es la implementación actual
 

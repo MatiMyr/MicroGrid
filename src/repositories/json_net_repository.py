@@ -4,6 +4,8 @@ import uuid
 
 import pandapower as pp
 
+from repositories.paths import REDES_DIR
+
 
 class NombreDuplicadoError(Exception):
     """Se intentó guardar una red con un nombre que ya está en uso."""
@@ -25,8 +27,8 @@ class JsonRedRepository:
     ``pp.to_json``) y el mapa ``id -> nombre`` en ``_index.json``.
     """
 
-    def __init__(self, base_dir: str = "data/redes"):
-        self._dir = Path(base_dir)
+    def __init__(self, base_dir=None):
+        self._dir = Path(base_dir) if base_dir else REDES_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._dir / "_index.json"
 

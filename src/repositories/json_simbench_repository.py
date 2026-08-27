@@ -2,6 +2,8 @@ from pathlib import Path
 
 import pandapower as pp
 
+from repositories.paths import SIMBENCH_DIR
+
 
 class JsonSimbenchRepository:
     """Caché local de redes base de SimBench bajo ``data/redes/simbench/``.
@@ -12,8 +14,8 @@ class JsonSimbenchRepository:
     ``json_net_repository.py``.
     """
 
-    def __init__(self, base_dir: str = "data/redes/simbench"):
-        self._dir = Path(base_dir)
+    def __init__(self, base_dir=None):
+        self._dir = Path(base_dir) if base_dir else SIMBENCH_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, codigo: str) -> Path:

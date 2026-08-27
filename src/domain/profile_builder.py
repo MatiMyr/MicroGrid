@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from typing import Dict, List, Optional
 
+from domain.tiempo import hora_del_dia
+
 
 # Formas horarias características (factor 0..1 por hora del día, 24 valores).
 # Sirven como fallback cuando no hay datos reales cacheados de CAMMESA.
@@ -33,24 +35,44 @@ class ProfileBuilder:
     horarias normalizadas (factor 0..1) listas para escalar cada elemento de la
     red hora a hora. Cuando no hay datos reales cacheados usa formas sintéticas
     características, de modo que la simulación funciona igual sin conexión.
+
+    La hora del día de cada muestra se resuelve con ``domain.tiempo``, que
+    normaliza a hora local argentina. Las dos fuentes vienen en husos distintos
+    (NASA en UTC, CAMMESA en local): sin normalizar, el perfil solar quedaba
+    corrido 3 horas respecto del de demanda.
+
+    .. note::
+       **La demanda de CAMMESA está aislada a propósito.** Su serie es la
+       demanda *agregada de una región entera*, así que aplicarla a la red
+       imponía una única curva a todas las cargas y dejaba sin efecto el tipo de
+       consumidor de cada una — justo lo contrario de poder mezclar viviendas,
+       comercios e industria en la misma red. El código queda intacto detrás de
+       ``usar_demanda_real``: reactivarlo es cambiar ese flag y volver a habilitar
+       el botón en el Dashboard, una vez que se decida cómo repartir una curva
+       regional entre cargas individuales.
     """
 
-    def __init__(self, demanda_repo=None, irradiacion_repo=None):
+    def __init__(self, demanda_repo=None, irradiacion_repo=None, usar_demanda_real: bool = False):
         self._demanda_repo = demanda_repo
         self._irradiacion_repo = irradiacion_repo
+        # Interruptor explícito de la demanda de CAMMESA (ver la nota de clase).
+        self._usar_demanda_real = usar_demanda_real
 
     # ---- carga -----------------------------------------------------------
     def build_load_profile(
-        self, tipo: str = "residencial", horas: int = 24, region: str = "GBA"
+        self, tipo: str = "residencial", horas: int = 24, region: Optional[str] = None
     ) -> List[float]:
         """Perfil de carga normalizado (0..1) por hora para un tipo de consumidor.
 
-        Si hay demanda de CAMMESA cacheada para ``region``, usa su forma horaria
-        promedio; si no, cae en la forma sintética característica del ``tipo``.
+        Usa la forma sintética característica del ``tipo``. La demanda de CAMMESA
+        solo se consulta si el constructor recibió ``usar_demanda_real=True`` y se
+        pasa una ``region``; hoy nada la activa (ver la nota de clase).
         """
-        forma = self._forma_desde_cammesa(region)
+        forma = None
+        if self._usar_demanda_real and region:
+            forma = self._forma_desde_cammesa(region)
         if forma is None:
-            forma = _FORMAS_CARGA.get(tipo.lower(), _FORMAS_CARGA["residencial"])
+            forma = _FORMAS_CARGA.get(str(tipo).lower(), _FORMAS_CARGA["residencial"])
         return [forma[h % 24] for h in range(horas)]
 
     def _forma_desde_cammesa(self, region: str) -> Optional[List[float]]:
@@ -63,9 +85,8 @@ class ProfileBuilder:
         suma = [0.0] * 24
         cuenta = [0] * 24
         for ts, valor in serie.items():
-            try:
-                hora = int(ts[11:13])
-            except (ValueError, IndexError):
+            hora = hora_del_dia(ts)
+            if hora is None:
                 continue
             suma[hora] += float(valor)
             cuenta[hora] += 1
@@ -98,9 +119,8 @@ class ProfileBuilder:
         suma = [0.0] * 24
         cuenta = [0] * 24
         for ts, valor in serie.items():
-            try:
-                hora = int(ts[11:13])
-            except (ValueError, IndexError):
+            hora = hora_del_dia(ts)
+            if hora is None:
                 continue
             suma[hora] += max(0.0, float(valor))
             cuenta[hora] += 1

@@ -83,7 +83,7 @@ No todos los tipos aplican a todas las capas:
 #### `dashboard.py`
 **Módulo conceptual:** Dashboard
 
-Muestra los resultados de la simulación: tensiones por nodo, pérdidas, cargabilidad, autosuficiencia y curtailment solar. Visualiza la red como grafo interactivo con nodos y líneas coloreados según su estado. Permite ver y comparar simulaciones anteriores. Incluye los callbacks de Dash propios: le pide los resultados al Servicio Simulación y los datos de red al Servicio Red, y actualiza los gráficos cuando llegan.
+Muestra los resultados de la simulación: tensiones por nodo, pérdidas, cargabilidad, autosuficiencia y excedente exportado. Visualiza la red como grafo interactivo con nodos y líneas coloreados según su estado. Permite ver y comparar simulaciones anteriores. Incluye los callbacks de Dash propios: le pide los resultados al Servicio Simulación y los datos de red al Servicio Red, y actualiza los gráficos cuando llegan.
 
 | Tipo | Archivo | Descripción |
 |---|---|---|
@@ -200,7 +200,9 @@ Recibe una red ya construida con sus perfiles de carga y generación, y corre la
 
 Notas de implementación:
 - El helper `_col_sum(df, col)` provee acceso seguro a columnas de DataFrames de resultados, reemplazando el uso incorrecto de `DataFrame.get()`.
-- `curtailment_solar_mw` descuenta exportación a red externa y carga de baterías (`res_ext_grid`, `res_storage`).
+- `export_surplus_mw` mide la potencia que la microgrid **inyecta** a la red externa: `max(0, -sum(res_ext_grid.p_mw))`.
+
+  Reemplaza al viejo `curtailment_solar_mw` (agosto de 2026). Aquel intentaba deducir el recorte solar restándole al `sgen` el consumo, las pérdidas, la exportación y la carga de baterías. No podía funcionar: bajo `runpp` el `sgen` es una **inyección fija**, así que no existe recorte que medir — por conservación de energía el resultado daba siempre 0, y cuando la batería cargaba (con el signo invertido de `res_storage`) devolvía justo la potencia de carga de la batería disfrazada de solar recortada. Medir curtailment de verdad exige `runopp` con `sgen` controlable y límites de generación; hasta entonces, el excedente exportado es la magnitud análoga que sí es observable.
 - `autosufficiency_pct` incluye pérdidas en el denominador: `solar / (carga + pérdidas) * 100`.
 
 | Tipo    | Archivo                         | Descripción                                                                      |
@@ -212,12 +214,16 @@ Notas de implementación:
 #### `profile_builder.py`
 **Módulo conceptual:** Constructor Perfiles
 
-Toma los datos de demanda de CAMMESA y los convierte en curvas horarias por tipo de consumidor: residencial, comercial e industrial, cada uno con su forma característica. Toma los datos de irradiación solar de NASA y los convierte en una curva de generación fotovoltaica hora a hora, escalada según el tamaño de los paneles configurados. El resultado es un conjunto de perfiles listos para asignarle a cada nodo de la red antes de simular.
+Construye curvas horarias normalizadas (0..1) por tipo de consumidor —residencial, comercial e industrial, cada uno con su forma característica— y una curva de generación solar a partir de la irradiación de NASA POWER. El resultado son los factores hora a hora con los que `simulation_service.py` escala cada elemento de la red.
+
+El tipo de consumidor es un atributo **de cada carga** (`net.load.perfil_tipo`), no un parámetro de la corrida: la corrida arma una curva por cada tipo presente y escala carga por carga, de modo que una misma red puede mezclar viviendas, comercios e industria.
+
+> **La demanda de CAMMESA está deshabilitada** (agosto de 2026). Su serie es el consumo agregado de una región entera, así que aplicarla imponía una única curva a todas las cargas y anulaba el tipo de cada una. El código sigue disponible detrás de `ProfileBuilder(usar_demanda_real=True)`; ver `doc/correcciones_2026-08.md`.
 
 | Tipo    | Archivo                          | Descripción                                                                                    |
 | ------- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Retorna | `simulation_service.py`          | Le entrega los perfiles horarios listos: cuánta energía consume y genera cada nodo hora a hora |
-| Lee     | `json_demanda_repository.py`     | Lee el historial de demanda de CAMMESA para construir los perfiles de carga                    |
+| Lee     | `json_demanda_repository.py`     | *(deshabilitado)* Leería el historial de demanda de CAMMESA; hoy los perfiles de carga son sintéticos por tipo |
 | Lee     | `json_irradiacion_repository.py` | Lee la serie de irradiación solar de NASA para construir los perfiles de generación            |
 
 ---
@@ -335,7 +341,7 @@ Motivos:
 - El SoC del primer instante de una corrida nueva lo define el usuario (o el default de `Battery.soc_percent`); el de cada instante siguiente lo calcula automáticamente el sistema a partir del `res_storage.p_mw` del instante anterior.
 - Con esto, simular "días 3-6" reusa del cache los instantes cuyo SoC de partida coincide con el resultado real de haber simulado "días 1-2" antes, y resimula (y cachea aparte) si se pide un SoC de partida distinto.
 
-**Dónde vive el cálculo del SoC resultante:** en `simulation_engine.py`, no en `simulation_service.py`. Calcular el SoC a partir de `res_storage.p_mw` es conocimiento eléctrico del dominio (mismo tipo de cálculo que ya hace `_build_result` con `autosufficiency_pct` o `curtailment_solar_mw`), no orquestación. `simulation_service.py` se limita a encadenar el loop: corre el instante H, toma el SoC resultante que le devuelve el dominio, se lo pasa como input al instante H+1. El SoC resultante se persiste en `SimulationResult.battery_soc_result` para poder retomar la cadena desde un instante cacheado sin necesitar la corrida en memoria.
+**Dónde vive el cálculo del SoC resultante:** en `simulation_engine.py`, no en `simulation_service.py`. Calcular el SoC a partir de `res_storage.p_mw` es conocimiento eléctrico del dominio (mismo tipo de cálculo que ya hace `_build_result` con `autosufficiency_pct` o `export_surplus_mw`), no orquestación. `simulation_service.py` se limita a encadenar el loop: corre el instante H, toma el SoC resultante que le devuelve el dominio, se lo pasa como input al instante H+1. El SoC resultante se persiste en `SimulationResult.battery_soc_result` para poder retomar la cadena desde un instante cacheado sin necesitar la corrida en memoria.
 
 Pendiente de implementar: el loop que encadena el SoC entre instantes, y el índice que agrupa los `SimulationResult` de una corrida para el Dashboard.
 

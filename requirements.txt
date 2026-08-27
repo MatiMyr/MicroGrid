@@ -13,3 +13,15 @@ requests==2.34.2
 # Núcleo de datos (dependencias directas usadas por el proyecto)
 pandas==2.3.3
 numpy==2.3.5
+
+# Tests
+pytest==8.4.2
+
+# Opcional pero muy recomendado: pandapower usa numba para acelerar el flujo de
+# potencia. Sin numba una corrida de 168 horas sobre una red urbana tarda varias
+# veces más. El código detecta si está instalado y ajusta la llamada solo:
+#
+#     pip install numba
+#
+# No se fija acá porque su rango de numpy soportado va por detrás del de numpy,
+# y forzarlo rompería la instalación base.

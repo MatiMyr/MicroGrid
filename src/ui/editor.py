@@ -9,14 +9,15 @@ from __future__ import annotations
 import dash_cytoscape as cyto
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
+from domain.entities import TIPOS_CARGA
 from domain.network_model import Battery, Bus, ExternalGrid, Line, Load, SolarPanel
 from repositories.json_net_repository import NombreDuplicadoError
 from ui.graph_view import (
     LEGEND_BADGES,
     LEGEND_NODES,
     STYLESHEET,
+    geo_desde_pixel,
     net_to_elements,
-    pixel_to_geo,
 )
 
 
@@ -84,6 +85,16 @@ def _dfield(label, id_dict, value, tipo="number"):
                     className="field")
 
 
+def _dselect(label, id_dict, value, opciones):
+    """Campo desplegable del panel de detalle (misma firma de State que _dfield)."""
+    return html.Div(
+        [html.Label(label),
+         dcc.Dropdown(id=id_dict, value=value, clearable=False, className="dash-dropdown",
+                      options=[{"label": o.capitalize(), "value": o} for o in opciones])],
+        className="field", style={"minWidth": "140px"},
+    )
+
+
 def _detail_panel():
     return html.Div(
         [
@@ -130,6 +141,14 @@ def _detail_body(det):
             for f in _DET_CAMPOS[kind]:
                 campos.append(_dfield(f, {"role": "detf", "kind": kind, "idx": el["idx"], "field": f},
                                       el.get(f, 0.0)))
+            if kind == "load":
+                # Curva horaria de esta carga: es un atributo del elemento, así
+                # que una misma red puede mezclar viviendas, comercios e
+                # industria (p. ej. para mapear un barrio).
+                campos.append(_dselect(
+                    "tipo",
+                    {"role": "detf", "kind": "load", "idx": el["idx"], "field": "perfil_tipo"},
+                    el.get("perfil_tipo", TIPOS_CARGA[0]), TIPOS_CARGA))
             campos.append(html.Div(
                 html.Button("🗑", id={"role": "detdel", "kind": kind, "idx": el["idx"]},
                             className="btn btn-sm", style={"color": "var(--critical)"}),
@@ -163,7 +182,12 @@ def layout():
                                                           className="dash-dropdown"),
                                              className="field", style={"minWidth": "180px"}),
                                     _btn("Abrir", "ed-btn-guardada"),
+                                    html.Button("🗑 Borrar", id="ed-btn-borrar", n_clicks=0,
+                                                className="btn",
+                                                style={"color": "var(--critical)",
+                                                       "borderColor": "var(--critical)"}),
                                 ]),
+                                dcc.ConfirmDialog(id="ed-confirm-borrar"),
                             ], open=True),
                             _acc("✏️  Agregar elementos (gráfico)", [
                                 _fila([
@@ -277,11 +301,28 @@ def register_callbacks(app, services):
         return [{"label": r["nombre"], "value": r["id"]} for r in network_service.listar_guardadas()]
 
     @app.callback(
+        Output("ed-confirm-borrar", "displayed"),
+        Output("ed-confirm-borrar", "message"),
+        Input("ed-btn-borrar", "n_clicks"),
+        State("ed-guardadas", "value"),
+        prevent_initial_call=True,
+    )
+    def confirmar_borrado(_n, red_id):
+        """Pide confirmación nombrando la red: borrarla no tiene vuelta atrás."""
+        if not red_id:
+            return False, ""
+        nombre = network_service.nombre_guardada(red_id) or red_id
+        return True, (f"¿Borrar definitivamente la red «{nombre}»?\n\n"
+                      f"Se elimina del disco y no se puede deshacer. "
+                      f"Los resultados de simulación ya calculados no se tocan.")
+
+    @app.callback(
         Output("ed-graph", "elements"),
         Output("ed-summary", "children"),
         Output("ed-status", "children"),
         Output("ed-guardadas", "options"),
         Output("ed-code", "value"),
+        Output("ed-guardadas", "value"),
         Input("ed-btn-ejemplo", "n_clicks"),
         Input("ed-btn-simbench", "n_clicks"),
         Input("ed-btn-guardada", "n_clicks"),
@@ -296,6 +337,7 @@ def register_callbacks(app, services):
         Input("ed-btn-code-refresh", "n_clicks"),
         Input("ed-btn-save", "n_clicks"),
         Input("ed-btn-save-changes", "n_clicks"),
+        Input("ed-confirm-borrar", "submit_n_clicks"),
         State("ed-simbench-code", "value"),
         State("ed-guardadas", "value"),
         State("ed-bus-vn", "value"), State("ed-bus-name", "value"),
@@ -309,16 +351,17 @@ def register_callbacks(app, services):
         State("ed-save-name", "value"),
     )
     def actualizar(_e, _sb, _g, _bus, _line, _load, _sgen, _bat, _ext, _rm, _code, _coderef, _save, _savech,
-                   simbench_code, guardada_id,
+                   _borrar, simbench_code, guardada_id,
                    bus_vn, bus_name, line_from, line_to, line_len,
                    load_bus, load_p, load_q, sgen_bus, sgen_p,
                    bat_bus, bat_p, bat_maxe, bat_soc, ext_bus,
                    rm_type, rm_index, code_text, save_name):
         disparador = ctx.triggered_id
         status = ""
+        seleccion = no_update
         try:
             if disparador == "ed-btn-ejemplo":
-                network_service.set_network(network_service._build_sample_network())
+                network_service.cargar_ejemplo()
                 status = "Red de ejemplo cargada."
             elif disparador == "ed-btn-simbench":
                 network_service.cargar_desde_simbench(simbench_code or "1-LV-rural1--0-no_sw")
@@ -361,6 +404,11 @@ def register_callbacks(app, services):
             elif disparador == "ed-btn-save-changes":
                 network_service.guardar_cambios()
                 status = "Cambios guardados sobre la red actual."
+            elif disparador == "ed-confirm-borrar":
+                nombre = network_service.nombre_guardada(guardada_id) or guardada_id
+                network_service.eliminar_guardada(guardada_id)
+                seleccion = None
+                status = f"Red «{nombre}» borrada."
         except NombreDuplicadoError as exc:
             status = f"⚠ {exc} — elegí otro nombre."
         except Exception as exc:  # noqa: BLE001
@@ -374,10 +422,28 @@ def register_callbacks(app, services):
         modelo.ensure_positions()
         net = modelo.net
         return (net_to_elements(net, editable=True, selected=network_service.selected_bus),
-                _resumen(net), status, _opciones_guardadas(), network_service.generar_codigo())
+                _resumen(net), status, _opciones_guardadas(), network_service.generar_codigo(),
+                seleccion)
 
     # ---- panel de detalle por bus (estilo mapa) --------------------------
     _SHOW, _HIDE = {"display": "block"}, {"display": "none"}
+
+    def _guardar_posicion(bus_idx: int, pos: dict) -> None:
+        """Persiste la posición de un bus solo si de verdad se movió.
+
+        El grafo entrega la posición **renderizada**, que incluye el corrimiento
+        anti-superposición de ``net_to_elements``. Hay que descontarlo: si no, un
+        simple click sobre un bus apilado lo desplazaba de forma permanente. Y
+        como el JS reenvía el ``dragfree`` como ``tap``, un click y un arrastre
+        llegan iguales — por eso se compara contra la posición guardada y se
+        escribe solo ante un cambio real, que además es lo que evita invalidar
+        la caché de simulaciones sin motivo.
+        """
+        modelo = network_service.get_network()
+        gx, gy = geo_desde_pixel(modelo.net, bus_idx, pos["x"], pos["y"])
+        actual = modelo.get_bus_position(bus_idx)
+        if actual is None or abs(actual[0] - gx) > 1e-4 or abs(actual[1] - gy) > 1e-4:
+            modelo.set_bus_position(bus_idx, gx, gy)
 
     def _refresh_graph():
         modelo = network_service.get_network()
@@ -433,8 +499,7 @@ def register_callbacks(app, services):
                 return nada
             bus_idx = int(nid[1:])
             if "x" in pos:
-                gx, gy = pixel_to_geo(pos["x"], pos["y"])
-                ns.get_network().set_bus_position(bus_idx, gx, gy)
+                _guardar_posicion(bus_idx, pos)
             return abrir(bus_idx)
 
         if disp == "edd-back":

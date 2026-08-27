@@ -1,6 +1,8 @@
 from pathlib import Path
 import json
 
+from repositories.paths import CACHE_CAMMESA_DIR
+
 
 class JsonDemandaRepository:
     """Caché de demanda horaria de CAMMESA bajo ``data/cache/cammesa/``.
@@ -10,8 +12,8 @@ class JsonDemandaRepository:
     agregar datos nuevos no se duplica lo que ya existe (se mergea por clave).
     """
 
-    def __init__(self, base_dir: str = "data/cache/cammesa"):
-        self._dir = Path(base_dir)
+    def __init__(self, base_dir=None):
+        self._dir = Path(base_dir) if base_dir else CACHE_CAMMESA_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
 
     def _path(self, region: str) -> Path:

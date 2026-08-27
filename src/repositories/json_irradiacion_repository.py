@@ -1,6 +1,8 @@
 from pathlib import Path
 import json
 
+from repositories.paths import CACHE_NASA_DIR
+
 
 class JsonIrradiacionRepository:
     """Caché de irradiación solar de NASA POWER bajo ``data/cache/nasa/``.
@@ -9,8 +11,8 @@ class JsonIrradiacionRepository:
     ``{lat}_{lon}.json`` es un mapa ``timestamp ISO -> irradiancia (W/m2)``.
     """
 
-    def __init__(self, base_dir: str = "data/cache/nasa"):
-        self._dir = Path(base_dir)
+    def __init__(self, base_dir=None):
+        self._dir = Path(base_dir) if base_dir else CACHE_NASA_DIR
         self._dir.mkdir(parents=True, exist_ok=True)
 
     @staticmethod

@@ -24,6 +24,44 @@ def pixel_to_geo(x: float, y: float) -> tuple[float, float]:
     return round(float(x) / _SCALE, 4), round(-float(y) / _SCALE, 4)
 
 
+def bus_pixel_offsets(net) -> dict[int, tuple[float, float]]:
+    """Desplazamiento anti-superposición aplicado a cada bus, en píxeles.
+
+    ``net_to_elements`` separa los buses que caen en coordenadas (casi)
+    coincidentes para que no queden apilados. Ese corrimiento es **solo visual**:
+    si se guardara tal cual, un simple click sobre un bus superpuesto lo movería
+    de verdad. El Editor usa este mapa para restarle el corrimiento a la posición
+    que devuelve el grafo antes de persistirla.
+
+    Es la misma cuenta determinista que hace ``net_to_elements``, expuesta aparte
+    para que ambos lados no puedan desincronizarse.
+    """
+    offsets: dict[int, tuple[float, float]] = {}
+    usados: Dict[tuple[int, int], int] = {}
+    for idx in net.bus.index:
+        pos = _bus_xy(net, idx)
+        if pos is None:
+            continue
+        x, y = pos
+        clave = (round(x / 6), round(y / 6))
+        k = usados.get(clave, 0)
+        usados[clave] = k + 1
+        offsets[int(idx)] = (9.0 * k, 9.0 * k) if k else (0.0, 0.0)
+    return offsets
+
+
+def geo_desde_pixel(net, bus_idx: int, x: float, y: float) -> tuple[float, float]:
+    """Convierte la posición **renderizada** de un bus a coordenadas geo.
+
+    El grafo entrega la posición con el corrimiento anti-superposición ya
+    aplicado; acá se lo descuenta. Es la inversa exacta de lo que arma
+    ``net_to_elements``, así que un bus que no se movió vuelve a su valor
+    guardado tal cual — que es lo que evita que un simple click lo desplace.
+    """
+    dx, dy = bus_pixel_offsets(net).get(int(bus_idx), (0.0, 0.0))
+    return pixel_to_geo(x - dx, y - dy)
+
+
 def _bus_xy(net, idx) -> Optional[tuple[float, float]]:
     """Posición (x, y) en píxeles de un bus a partir de su geo (GeoJSON)."""
     geo = net.bus.at[idx, "geo"] if "geo" in net.bus.columns else None
@@ -67,7 +105,9 @@ def net_to_elements(
     """Devuelve la lista de elementos (nodos y aristas) para ``cyto.Cytoscape``.
 
     Si se pasan ``voltage_profile`` / ``line_loading`` (resultados de una
-    simulación), colorea buses y líneas según su estado. Si los buses tienen
+    simulación), colorea buses y líneas según su estado. Los elementos que la
+    simulación dejó sin solución no figuran en esos perfiles y se dibujan en
+    gris con la etiqueta "sin conexión". Si los buses tienen
     posición (``net.bus.geo``), cada nodo trae su ``position`` para usar el
     layout ``preset``. Con ``editable=True`` los buses son arrastrables; los
     demás nodos quedan fijos siempre.
@@ -75,6 +115,9 @@ def net_to_elements(
     elements: list[dict] = []
     voltage_profile = voltage_profile or {}
     line_loading = line_loading or {}
+    # Distingue "todavía no se simuló" de "se simuló y este elemento quedó sin
+    # solución": en el segundo caso el elemento falta en el perfil.
+    simulada = bool(voltage_profile) or bool(line_loading)
 
     # Conteo de elementos conectados por bus (para los badges).
     def _por_bus(tabla) -> Dict[int, int]:
@@ -94,7 +137,7 @@ def net_to_elements(
         return " ".join(partes)
 
     # Buses (con badges de sus elementos conectados) + jitter anti-superposición.
-    usados: Dict[tuple[int, int], int] = {}
+    offsets = bus_pixel_offsets(net)
     for idx in net.bus.index:
         bus_idx = int(idx)
         nombre = net.bus.at[idx, "name"]
@@ -104,6 +147,12 @@ def net_to_elements(
         if vm is not None:
             color = _color_por_tension(float(vm))
             label = f"{etiqueta}\n{float(vm):.3f} pu"
+        elif simulada:
+            # Se simuló, pero este bus no está en el perfil: el flujo no le
+            # encontró solución (aislado, o aguas abajo de algo fuera de
+            # servicio). Gris de "sin dato", nunca el rojo de tensión crítica.
+            color = _IDLE
+            label = f"{etiqueta}\nsin conexión"
         else:
             color = "#2a78d6"
             label = etiqueta
@@ -126,14 +175,10 @@ def net_to_elements(
         if pos is not None:
             x, y = pos
             # Separa buses en coordenadas (casi) coincidentes con un desplazamiento
-            # determinista, para que no queden apilados uno sobre otro.
-            clave = (round(x / 6), round(y / 6))
-            k = usados.get(clave, 0)
-            usados[clave] = k + 1
-            if k:
-                x += 9 * k
-                y += 9 * k
-            el["position"] = {"x": x, "y": y}
+            # determinista, para que no queden apilados uno sobre otro. Es solo
+            # visual: el Editor lo descuenta antes de guardar la posición.
+            dx, dy = offsets.get(bus_idx, (0.0, 0.0))
+            el["position"] = {"x": x + dx, "y": y + dy}
         elements.append(el)
 
     # Líneas
@@ -141,9 +186,14 @@ def net_to_elements(
         f, t = int(net.line.at[idx, "from_bus"]), int(net.line.at[idx, "to_bus"])
         data = {"source": f"b{f}", "target": f"b{t}", "id": f"l{idx}", "label": f"L{idx}"}
         load = line_loading.get(idx, line_loading.get(str(idx)))
-        data["color"] = _color_por_carga(float(load)) if load is not None else "#90a4ae"
         if load is not None:
+            data["color"] = _color_por_carga(float(load))
             data["label"] = f"L{idx} · {float(load):.0f}%"
+        elif simulada:
+            data["color"] = _IDLE
+            data["label"] = f"L{idx} · sin conexión"
+        else:
+            data["color"] = "#90a4ae"
         elements.append({"data": data, "classes": "line"})
 
     # Transformadores
@@ -208,4 +258,5 @@ LEGEND_STATUS = [
     ("#0ca30c", "Tensión sana (±5%)"),
     ("#eda100", "Alerta (±5–10%)"),
     ("#d03b3b", "Crítica (>10%)"),
+    ("#9e9e9e", "Sin conexión al slack"),
 ]

@@ -9,8 +9,27 @@ Ejecutar desde ``src/``:
     python main.py
 
 Luego abrir http://127.0.0.1:8050 en el navegador.
+
+Herramienta **local y monousuario**, a propósito
+------------------------------------------------
+Dos decisiones de diseño lo vuelven un requisito, no una preferencia:
+
+1. El Editor ejecuta código Python del usuario con ``exec``
+   (``NetworkService.aplicar_codigo``). Expuesto en red, eso es ejecución
+   remota de código arbitraria y sin autenticación.
+2. El estado —la red en memoria— es una única instancia compartida por todo el
+   proceso. Es lo que hace que las dos pestañas editen la misma red, y también
+   lo que impide atender a dos usuarios a la vez: se pisarían la red entre sí,
+   y con varios workers cada uno tendría una red distinta.
+
+Por eso la app escucha sólo en ``127.0.0.1`` y no se exporta un objeto WSGI
+para gunicorn: servirla detrás de un servidor de producción sería contradecir
+los dos puntos de arriba. Para habilitar multiusuario primero hay que aislar el
+estado por sesión y sacar (o encerrar) el ``exec``.
 """
 from __future__ import annotations
+
+import os
 
 import dash
 from dash import Input, Output, dcc, html
@@ -37,7 +56,13 @@ def build_services() -> dict:
     simbench_repo = JsonSimbenchRepository()
 
     network_service = NetworkService(simbench_repo=simbench_repo)
-    profile_builder = ProfileBuilder(demanda_repo=demanda_repo, irradiacion_repo=irradiacion_repo)
+    # ``usar_demanda_real=False``: la demanda de CAMMESA queda aislada. Su serie
+    # es el consumo agregado de una región entera, así que aplicarla imponía una
+    # única curva a todas las cargas y anulaba el tipo de consumidor de cada una.
+    # El repositorio se sigue inyectando para poder reactivarla con un solo flag.
+    profile_builder = ProfileBuilder(
+        demanda_repo=demanda_repo, irradiacion_repo=irradiacion_repo, usar_demanda_real=False
+    )
     simulation_service = SimulationService(
         network_service=network_service, profile_builder=profile_builder
     )
@@ -143,8 +168,11 @@ def create_app() -> dash.Dash:
 
 
 app = create_app()
-server = app.server  # para despliegue WSGI (gunicorn, etc.)
 
 
 if __name__ == "__main__":
-    app.run(debug=True, host="127.0.0.1", port=8050)
+    # El modo debug de Dash levanta la consola interactiva de Werkzeug, que
+    # ejecuta código arbitrario desde el navegador: se activa a pedido con
+    # ``MG_DEBUG=1``, nunca por defecto.
+    debug = os.environ.get("MG_DEBUG") == "1"
+    app.run(debug=debug, host="127.0.0.1", port=8050)
