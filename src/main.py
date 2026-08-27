@@ -107,7 +107,8 @@ def _header():
         [
             html.Div(
                 [
-                    html.Div("⚡", className="logo"),
+                    html.Img(src=dash.get_asset_url("logo.png"), className="logo",
+                             alt="Smart Microgrid Argentina"),
                     html.Div([
                         html.H1("Smart Microgrid Argentina"),
                         html.P("Simulación de microgrids de baja tensión · datos argentinos",
