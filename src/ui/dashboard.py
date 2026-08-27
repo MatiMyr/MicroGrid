@@ -12,11 +12,12 @@ import plotly.graph_objects as go
 from dash import Input, Output, State, ctx, dcc, html
 from plotly.subplots import make_subplots
 
+from app.data_sync_service import CAMMESA_REGIONES
 from app.simulation_service import SimulationService
 from domain import epocas as epocas_mod
 from ui import theme
-from app.data_sync_service import CAMMESA_REGIONES
-from ui.graph_view import LEGEND_BADGES, LEGEND_NODES, LEGEND_STATUS, STYLESHEET, net_to_elements
+from ui.graph_view import STYLESHEET, net_to_elements
+from ui.widgets import campo as _campo, leyenda
 
 REGIONES = sorted(CAMMESA_REGIONES)
 
@@ -39,13 +40,6 @@ def _kpi(titulo, id_, accent=False):
         [html.Div(titulo, className="kpi-label"),
          html.Div("—", id=id_, className="kpi-value")],
         className="kpi accent" if accent else "kpi",
-    )
-
-
-def _campo(label, id_, value, tipo="number", **kw):
-    return html.Div(
-        [html.Label(label), dcc.Input(id=id_, type=tipo, value=value, **kw)],
-        className="field",
     )
 
 
@@ -107,15 +101,66 @@ def _aviso_sin_solucion(resultados) -> str:
             "indicadores y se muestran en gris en el grafo.")
 
 
-def _legend():
-    nodes = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
-             for c, t in LEGEND_NODES]
-    badges = [html.Div([html.Span(e, className="badge"), t], className="item")
-              for e, t in LEGEND_BADGES]
-    status = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
-              for c, t in LEGEND_STATUS]
-    sep = html.Span("·", style={"color": "var(--muted)"})
-    return html.Div(nodes + badges + [sep] + status, className="legend")
+# ---- figuras ------------------------------------------------------------
+def _fig_tension(volt: dict, hora: int, vmin: float, vmax: float):
+    """Perfil de tensión por nodo: una barra por bus (serie única, sin leyenda).
+
+    El color marca el desvío respecto de 1 pu con los mismos umbrales que el
+    grafo: sano, alerta por encima del 5 % y crítico por encima del 10 %.
+    """
+    fig = go.Figure()
+    colores = [theme.CRITICAL if abs(v - 1) > 0.1 else theme.WARNING if abs(v - 1) > 0.05 else theme.SERIES["blue"]
+               for v in volt.values()]
+    fig.add_bar(x=[f"Bus {k}" for k in volt], y=list(volt.values()),
+                marker_color=colores, marker_line_width=0,
+                hovertemplate="%{x}: %{y:.3f} pu<extra></extra>")
+    theme.style(fig, f"Perfil de tensión por nodo — hora {hora}")
+    fig.update_yaxes(title="Tensión [pu]", range=[min(0.9, vmin - 0.02), max(1.1, vmax + 0.02)])
+    for y in (0.95, 1.05):
+        fig.add_hline(y=y, line_dash="dot", line_color=theme.CRITICAL, line_width=1,
+                      annotation_text=f"{y:g} pu", annotation_font_size=10,
+                      annotation_font_color=theme.INK)
+    return fig
+
+
+# Un panel por indicador (small multiples): cada uno con su propia escala, en
+# vez de un doble eje que obliga a leer dos veces la misma curva.
+# (clave en el store, título del panel, nombre de la serie, color, hover)
+_PANELES = (
+    ("losses", "Pérdidas [MW]", "Pérdidas", "blue", "h%{x}: %{y:.4f} MW<extra></extra>"),
+    ("auto", "Autosuficiencia [%]", "Autosuf.", "aqua", "h%{x}: %{y:.1f} %<extra></extra>"),
+    ("export", "Excedente exportado [MW]", "Exportado", "orange", "h%{x}: %{y:.4f} MW<extra></extra>"),
+)
+
+
+def _fig_series(data: list[dict]):
+    """Los indicadores de la corrida hora a hora, un panel por indicador."""
+    horas = [d["hour"] for d in data]
+    fig = make_subplots(rows=1, cols=len(_PANELES), shared_xaxes=False,
+                        subplot_titles=tuple(p[1] for p in _PANELES),
+                        horizontal_spacing=0.08)
+    for col, (clave, _titulo, nombre, color, hover) in enumerate(_PANELES, start=1):
+        fig.add_scatter(x=horas, y=[d[clave] for d in data], mode="lines+markers",
+                        line_color=theme.SERIES[color], marker_size=5, name=nombre,
+                        hovertemplate=hover, row=1, col=col)
+    # theme.style pisa todos los ejes, así que los retoques por panel van después.
+    theme.style(fig, "Indicadores a lo largo de la corrida")
+    fig.update_layout(showlegend=False)
+    for col in range(1, len(_PANELES) + 1):
+        fig.update_xaxes(title="hora", gridcolor=theme.GRID, zerolinecolor=theme.BASELINE,
+                         tickfont=dict(color=theme.INK, size=11),
+                         title_font=dict(color=theme.INK, size=11), row=1, col=col)
+        fig.update_yaxes(gridcolor=theme.GRID, zerolinecolor=theme.BASELINE,
+                         tickfont=dict(color=theme.INK, size=11), row=1, col=col)
+    for ann in fig.layout.annotations:
+        ann.font.color = theme.INK
+        ann.font.size = 12
+    return fig
+
+
+def _kpi_valor(x, unidad):
+    """Número grande del KPI con su unidad en tipografía chica."""
+    return html.Span([f"{x}", html.Span(unidad, className="unit")])
 
 
 def layout():
@@ -204,7 +249,7 @@ def layout():
                 [
                     html.Div(
                         html.Div(
-                            [_legend(),
+                            [leyenda(con_estado=True),
                              html.Div("Solo lectura: zoom con la rueda (las marcas mantienen su tamaño y los buses se separan) "
                                       "y arrastre del fondo para desplazarte. Los nodos no se editan acá.",
                                       className="card-sub", style={"padding": "0 14px"}),
@@ -401,56 +446,15 @@ def register_callbacks(app, services):
         load_max = max(load.values()) if load else 0.0
 
         elements = net_to_elements(net, voltage_profile=volt, line_loading=load)
-
-        # Perfil de tensión (barras, una serie -> sin leyenda).
-        fig_v = go.Figure()
-        colores = [theme.CRITICAL if abs(v - 1) > 0.1 else theme.WARNING if abs(v - 1) > 0.05 else theme.SERIES["blue"]
-                   for v in volt.values()]
-        fig_v.add_bar(x=[f"Bus {k}" for k in volt], y=list(volt.values()),
-                      marker_color=colores, marker_line_width=0,
-                      hovertemplate="%{x}: %{y:.3f} pu<extra></extra>")
-        theme.style(fig_v, f"Perfil de tensión por nodo — hora {h}")
-        fig_v.update_yaxes(title="Tensión [pu]", range=[min(0.9, vmin - 0.02), max(1.1, vmax + 0.02)])
-        for y in (0.95, 1.05):
-            fig_v.add_hline(y=y, line_dash="dot", line_color=theme.CRITICAL, line_width=1,
-                            annotation_text=f"{y:g} pu", annotation_font_size=10,
-                            annotation_font_color=theme.INK)
-
-        # Series por hora: small multiples (una escala por panel, sin doble eje).
-        horas = [d["hour"] for d in data]
-        fig_s = make_subplots(rows=1, cols=3, shared_xaxes=False,
-                              subplot_titles=("Pérdidas [MW]", "Autosuficiencia [%]", "Excedente exportado [MW]"),
-                              horizontal_spacing=0.08)
-        fig_s.add_scatter(x=horas, y=[d["losses"] for d in data], mode="lines+markers",
-                          line_color=theme.SERIES["blue"], marker_size=5, name="Pérdidas",
-                          hovertemplate="h%{x}: %{y:.4f} MW<extra></extra>", row=1, col=1)
-        fig_s.add_scatter(x=horas, y=[d["auto"] for d in data], mode="lines+markers",
-                          line_color=theme.SERIES["aqua"], marker_size=5, name="Autosuf.",
-                          hovertemplate="h%{x}: %{y:.1f} %<extra></extra>", row=1, col=2)
-        fig_s.add_scatter(x=horas, y=[d["export"] for d in data], mode="lines+markers",
-                          line_color=theme.SERIES["orange"], marker_size=5, name="Exportado",
-                          hovertemplate="h%{x}: %{y:.4f} MW<extra></extra>", row=1, col=3)
-        theme.style(fig_s, "Indicadores a lo largo de la corrida")
-        fig_s.update_layout(showlegend=False)
-        for c in (1, 2, 3):
-            fig_s.update_xaxes(title="hora", gridcolor=theme.GRID, zerolinecolor=theme.BASELINE,
-                               tickfont=dict(color=theme.INK, size=11), title_font=dict(color=theme.INK, size=11),
-                               row=1, col=c)
-            fig_s.update_yaxes(gridcolor=theme.GRID, zerolinecolor=theme.BASELINE,
-                               tickfont=dict(color=theme.INK, size=11), row=1, col=c)
-        for ann in fig_s.layout.annotations:
-            ann.font.color = theme.INK
-            ann.font.size = 12
+        fig_v = _fig_tension(volt, h, vmin, vmax)
+        fig_s = _fig_series(data)
 
         step = max(1, len(data) // 12)
         marks = {d["hour"]: str(d["hour"]) for d in data if d["hour"] % step == 0}
 
-        def val(x, unit):
-            return html.Span([f"{x}", html.Span(unit, className="unit")])
-
-        return (val(f"{inst['losses']:.4f}", " MW"), val(f"{vmin:.3f}", " pu"),
-                val(f"{vmax:.3f}", " pu"), val(f"{load_max:.1f}", " %"),
-                val(f"{inst['auto']:.1f}", " %"), val(f"{inst['export']:.4f}", " MW"),
+        return (_kpi_valor(f"{inst['losses']:.4f}", " MW"), _kpi_valor(f"{vmin:.3f}", " pu"),
+                _kpi_valor(f"{vmax:.3f}", " pu"), _kpi_valor(f"{load_max:.1f}", " %"),
+                _kpi_valor(f"{inst['auto']:.1f}", " %"), _kpi_valor(f"{inst['export']:.4f}", " MW"),
                 elements, fig_v, fig_s, len(data) - 1, marks)
 
     # ---- sincronización de datos ----

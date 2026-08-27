@@ -6,19 +6,16 @@ propios del Editor viven en este archivo.
 """
 from __future__ import annotations
 
+from typing import Any, NamedTuple
+
 import dash_cytoscape as cyto
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
 from domain.entities import TIPOS_CARGA
 from domain.network_model import Battery, Bus, ExternalGrid, Line, Load, SolarPanel
 from repositories.json_net_repository import NombreDuplicadoError
-from ui.graph_view import (
-    LEGEND_BADGES,
-    LEGEND_NODES,
-    STYLESHEET,
-    geo_desde_pixel,
-    net_to_elements,
-)
+from ui.graph_view import STYLESHEET, geo_desde_pixel, net_to_elements
+from ui.widgets import campo as _campo, leyenda
 
 
 def _num(value, default=0.0):
@@ -35,13 +32,6 @@ def _int(value, default=0):
         return default
 
 
-def _campo(label, id_, value="", tipo="number", **kw):
-    return html.Div(
-        [html.Label(label), dcc.Input(id=id_, type=tipo, value=value, **kw)],
-        className="field",
-    )
-
-
 def _fila(children):
     return html.Div(children, className="row", style={"marginBottom": "10px"})
 
@@ -56,16 +46,6 @@ def _acc(titulo, children, open=False):
 def _btn(label, id_, primary=False):
     cls = "btn btn-primary" if primary else "btn"
     return html.Button(label, id=id_, n_clicks=0, className=cls)
-
-
-def _legend():
-    # El estado de tensión (sana/alerta/crítica) es exclusivo del Dashboard tras
-    # simular; en el Editor solo se muestran el bus y los badges de elementos.
-    nodos = [html.Div([html.Span(className="dot", style={"background": c}), t], className="item")
-             for c, t in LEGEND_NODES]
-    badges = [html.Div([html.Span(e, className="badge"), t], className="item")
-              for e, t in LEGEND_BADGES]
-    return html.Div(nodos + badges, className="legend")
 
 
 # ---- panel de detalle por bus (estilo mapa) ----------------------------
@@ -265,7 +245,7 @@ def layout():
             html.Div(
                 html.Div(
                     [
-                        _legend(),
+                        leyenda(),
                         cyto.Cytoscape(
                             id="ed-graph",
                             className="cyto-grid",
@@ -292,6 +272,144 @@ def _resumen(net) -> str:
         f"Cargas: {len(net.load)}   Solar: {len(net.sgen)}   Baterías: {len(net.storage)}   "
         f"Red externa: {len(net.ext_grid)}"
     )
+
+
+# ---- acciones del panel principal ---------------------------------------
+class _Form(NamedTuple):
+    """Valores del formulario del panel principal (los ``State`` del callback)."""
+
+    simbench_code: Any
+    guardada_id: Any
+    bus_vn: Any
+    bus_name: Any
+    line_from: Any
+    line_to: Any
+    line_len: Any
+    load_bus: Any
+    load_p: Any
+    load_q: Any
+    sgen_bus: Any
+    sgen_p: Any
+    bat_bus: Any
+    bat_p: Any
+    bat_maxe: Any
+    bat_soc: Any
+    ext_bus: Any
+    rm_type: Any
+    rm_index: Any
+    code_text: Any
+    save_name: Any
+
+
+# Cada acción recibe el Servicio Red y los valores del formulario, y devuelve el
+# texto de estado. Lanzar es válido: el callback traduce la excepción a un aviso.
+def _cargar_ejemplo(ns, v):
+    ns.cargar_ejemplo()
+    return "Red de ejemplo cargada."
+
+
+def _cargar_simbench(ns, v):
+    ns.cargar_desde_simbench(v.simbench_code or "1-LV-rural1--0-no_sw")
+    return f"Red SimBench '{v.simbench_code}' cargada."
+
+
+def _cargar_guardada(ns, v):
+    if not v.guardada_id:
+        return "Elegí una red guardada primero."
+    ns.cargar_guardada(v.guardada_id)
+    return "Red guardada cargada."
+
+
+def _agregar_bus(ns, v):
+    idx = ns.agregar(Bus(vn_kv=_num(v.bus_vn, 0.4), name=v.bus_name or None))
+    return f"Bus {idx} agregado."
+
+
+def _agregar_linea(ns, v):
+    idx = ns.agregar(Line(from_bus=_int(v.line_from), to_bus=_int(v.line_to),
+                          length_km=_num(v.line_len, 0.1)))
+    return f"Línea {idx} agregada."
+
+
+def _agregar_carga(ns, v):
+    idx = ns.agregar(Load(bus=_int(v.load_bus), p_mw=_num(v.load_p), q_mvar=_num(v.load_q)))
+    return f"Carga {idx} agregada."
+
+
+def _agregar_solar(ns, v):
+    idx = ns.agregar(SolarPanel(bus=_int(v.sgen_bus), p_mw=_num(v.sgen_p)))
+    return f"Panel solar {idx} agregado."
+
+
+def _agregar_bateria(ns, v):
+    idx = ns.agregar(Battery(bus=_int(v.bat_bus), p_mw=_num(v.bat_p),
+                             max_e_mwh=_num(v.bat_maxe, 0.05), soc_percent=_num(v.bat_soc, 50)))
+    return f"Batería {idx} agregada."
+
+
+def _agregar_ext_grid(ns, v):
+    idx = ns.agregar(ExternalGrid(bus=_int(v.ext_bus)))
+    return f"Red externa {idx} agregada."
+
+
+def _quitar_elemento(ns, v):
+    ns.eliminar((v.rm_type or "line").strip(), _int(v.rm_index))
+    return f"Elemento {v.rm_type} {v.rm_index} eliminado."
+
+
+def _ejecutar_codigo(ns, v):
+    ns.aplicar_codigo(v.code_text or "")
+    return "Código ejecutado."
+
+
+def _regenerar_codigo(ns, v):
+    # El callback regenera el código desde la red pase lo que pase; este botón
+    # existe sólo para disparar ese refresco, así que no hay nada más que hacer.
+    return "Código regenerado desde la red actual."
+
+
+def _guardar_nueva(ns, v):
+    rid = ns.guardar((v.save_name or "Mi red").strip())
+    return f"Red guardada (id {rid[:8]}…)."
+
+
+def _sobrescribir(ns, v):
+    ns.guardar_cambios()
+    return "Cambios guardados sobre la red actual."
+
+
+def _borrar_guardada(ns, v):
+    nombre = ns.nombre_guardada(v.guardada_id) or v.guardada_id
+    ns.eliminar_guardada(v.guardada_id)
+    return f"Red «{nombre}» borrada."
+
+
+# Botón -> acción. Agregar un botón al panel es agregar una fila acá.
+_ACCIONES = {
+    "ed-btn-ejemplo": _cargar_ejemplo,
+    "ed-btn-simbench": _cargar_simbench,
+    "ed-btn-guardada": _cargar_guardada,
+    "ed-btn-bus": _agregar_bus,
+    "ed-btn-line": _agregar_linea,
+    "ed-btn-load": _agregar_carga,
+    "ed-btn-sgen": _agregar_solar,
+    "ed-btn-bat": _agregar_bateria,
+    "ed-btn-ext": _agregar_ext_grid,
+    "ed-btn-rm": _quitar_elemento,
+    "ed-btn-code": _ejecutar_codigo,
+    "ed-btn-code-refresh": _regenerar_codigo,
+    "ed-btn-save": _guardar_nueva,
+    "ed-btn-save-changes": _sobrescribir,
+    "ed-confirm-borrar": _borrar_guardada,
+}
+
+# Acciones que rehacen la topología: invalidan el bus seleccionado.
+_REHACEN_TOPOLOGIA = frozenset(
+    {"ed-btn-ejemplo", "ed-btn-simbench", "ed-btn-guardada", "ed-btn-rm", "ed-btn-code"}
+)
+
+# Borrar la red guardada limpia el desplegable; ninguna otra acción lo toca.
+_LIMPIAN_SELECCION = frozenset({"ed-confirm-borrar"})
 
 
 def register_callbacks(app, services):
@@ -360,65 +478,24 @@ def register_callbacks(app, services):
                    bat_bus, bat_p, bat_maxe, bat_soc, ext_bus,
                    rm_type, rm_index, code_text, save_name):
         disparador = ctx.triggered_id
+        valores = _Form(simbench_code, guardada_id, bus_vn, bus_name, line_from, line_to,
+                        line_len, load_bus, load_p, load_q, sgen_bus, sgen_p, bat_bus,
+                        bat_p, bat_maxe, bat_soc, ext_bus, rm_type, rm_index, code_text,
+                        save_name)
         status = ""
         seleccion = no_update
-        try:
-            if disparador == "ed-btn-ejemplo":
-                network_service.cargar_ejemplo()
-                status = "Red de ejemplo cargada."
-            elif disparador == "ed-btn-simbench":
-                network_service.cargar_desde_simbench(simbench_code or "1-LV-rural1--0-no_sw")
-                status = f"Red SimBench '{simbench_code}' cargada."
-            elif disparador == "ed-btn-guardada":
-                if not guardada_id:
-                    status = "Elegí una red guardada primero."
-                else:
-                    network_service.cargar_guardada(guardada_id)
-                    status = "Red guardada cargada."
-            elif disparador == "ed-btn-bus":
-                i = network_service.agregar(Bus(vn_kv=_num(bus_vn, 0.4), name=bus_name or None))
-                status = f"Bus {i} agregado."
-            elif disparador == "ed-btn-line":
-                i = network_service.agregar(Line(from_bus=_int(line_from), to_bus=_int(line_to), length_km=_num(line_len, 0.1)))
-                status = f"Línea {i} agregada."
-            elif disparador == "ed-btn-load":
-                i = network_service.agregar(Load(bus=_int(load_bus), p_mw=_num(load_p), q_mvar=_num(load_q)))
-                status = f"Carga {i} agregada."
-            elif disparador == "ed-btn-sgen":
-                i = network_service.agregar(SolarPanel(bus=_int(sgen_bus), p_mw=_num(sgen_p)))
-                status = f"Panel solar {i} agregado."
-            elif disparador == "ed-btn-bat":
-                i = network_service.agregar(Battery(bus=_int(bat_bus), p_mw=_num(bat_p), max_e_mwh=_num(bat_maxe, 0.05), soc_percent=_num(bat_soc, 50)))
-                status = f"Batería {i} agregada."
-            elif disparador == "ed-btn-ext":
-                i = network_service.agregar(ExternalGrid(bus=_int(ext_bus)))
-                status = f"Red externa {i} agregada."
-            elif disparador == "ed-btn-rm":
-                network_service.eliminar((rm_type or "line").strip(), _int(rm_index))
-                status = f"Elemento {rm_type} {rm_index} eliminado."
-            elif disparador == "ed-btn-code":
-                network_service.aplicar_codigo(code_text or "")
-                status = "Código ejecutado."
-            elif disparador == "ed-btn-code-refresh":
-                status = "Código regenerado desde la red actual."
-            elif disparador == "ed-btn-save":
-                rid = network_service.guardar((save_name or "Mi red").strip())
-                status = f"Red guardada (id {rid[:8]}…)."
-            elif disparador == "ed-btn-save-changes":
-                network_service.guardar_cambios()
-                status = "Cambios guardados sobre la red actual."
-            elif disparador == "ed-confirm-borrar":
-                nombre = network_service.nombre_guardada(guardada_id) or guardada_id
-                network_service.eliminar_guardada(guardada_id)
-                seleccion = None
-                status = f"Red «{nombre}» borrada."
-        except NombreDuplicadoError as exc:
-            status = f"⚠ {exc} — elegí otro nombre."
-        except Exception as exc:  # noqa: BLE001
-            status = f"⚠ Error: {exc}"
+        accion = _ACCIONES.get(disparador)
+        if accion is not None:
+            try:
+                status = accion(network_service, valores)
+                if disparador in _LIMPIAN_SELECCION:
+                    seleccion = None
+            except NombreDuplicadoError as exc:
+                status = f"⚠ {exc} — elegí otro nombre."
+            except Exception as exc:  # noqa: BLE001
+                status = f"⚠ Error: {exc}"
 
-        # Acciones que rehacen la topología invalidan la selección previa.
-        if disparador in ("ed-btn-ejemplo", "ed-btn-simbench", "ed-btn-guardada", "ed-btn-rm", "ed-btn-code"):
+        if disparador in _REHACEN_TOPOLOGIA:
             network_service.selected_bus = None
 
         modelo = network_service.get_network()

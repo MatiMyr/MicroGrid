@@ -6,17 +6,24 @@
 mimicrogrid/
 ├── ui/
 │   ├── dashboard.py
-│   └── editor.py
+│   ├── editor.py
+│   ├── graph_view.py
+│   ├── widgets.py
+│   └── theme.py
 ├── app/
 │   ├── network_service.py
+│   ├── code_gen.py
 │   ├── simulation_service.py
 │   └── data_sync_service.py
 ├── domain/
 │   ├── entities.py
 │   ├── network_model.py
 │   ├── simulation_engine.py
-│   └── profile_builder.py
+│   ├── profile_builder.py
+│   ├── epocas.py
+│   └── tiempo.py
 ├── repositories/
+│   ├── paths.py
 │   ├── json_net_repository.py
 │   ├── json_simbench_repository.py
 │   ├── json_simulation_repository.py
@@ -92,6 +99,10 @@ Muestra los resultados de la simulación: tensiones por nodo, pérdidas, cargabi
 | Solicita | `data_sync_service.py` | Le indica que actualice los datos de CAMMESA y NASA cuando el usuario lo pide manualmente |
 | Retorna | `network_service.py` | Recibe la red lista para mostrar |
 | Retorna | `simulation_service.py` | Recibe los resultados: tensiones, pérdidas, cargabilidad y el resto de los indicadores |
+| Solicita | `graph_view.py` | Le pide traducir la red a nodos y aristas, coloreados con los resultados de la corrida |
+| Solicita | `widgets.py` | Le pide los campos de formulario y la leyenda del grafo |
+| Solicita | `theme.py` | Le pide aplicar el template del proyecto a cada gráfico |
+| Solicita | `epocas.py` | Le pide las opciones del desplegable de época del año |
 
 ---
 
@@ -104,6 +115,51 @@ Ofrece dos modos de edición: gráfico con botones para agregar o quitar element
 |---|---|---|
 | Solicita | `network_service.py` | Le envía los cambios que hizo el usuario en la red para que los aplique |
 | Retorna | `network_service.py` | Recibe el estado actualizado de la red para mostrarlo |
+| Solicita | `graph_view.py` | Le pide traducir la red en edición a nodos y aristas, y convertir a coordenadas la posición de un bus arrastrado |
+| Solicita | `widgets.py` | Le pide los campos de formulario y la leyenda del grafo |
+
+---
+
+#### `graph_view.py`
+**Módulo conceptual:** Vista Grafo
+
+Traduce una red de pandapower a la lista de nodos y aristas que consume Dash Cytoscape, y define la hoja de estilos del grafo. Lo comparten el Editor (vista en vivo mientras se edita) y el Dashboard (la misma vista, coloreada con los resultados de la simulación): tener una sola traducción es lo que garantiza que las dos pestañas dibujen la misma red.
+
+Notas de implementación:
+- Los elementos conectados a un bus (cargas, solar, baterías, red externa) se muestran como *badges* sobre el nodo del bus, no como nodos aparte, para que el grafo escale a redes grandes.
+- Los buses que caen en coordenadas casi coincidentes se separan con un desplazamiento determinista. Es **sólo visual**: `geo_desde_pixel` se lo descuenta antes de que el Editor persista la posición, para que un simple click sobre un bus apilado no lo mueva de verdad.
+- Un elemento que la simulación dejó **sin solución** (aislado, o aguas abajo de algo fuera de servicio) no figura en los perfiles de tensión y cargabilidad. Se dibuja en gris de "sin dato", nunca en el rojo de tensión crítica; la distinción entre "todavía no se simuló" y "se simuló y no hubo solución" la da la presencia de los perfiles.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `dashboard.py` | Le entrega los nodos y aristas ya coloreados según los resultados de la corrida |
+| Retorna | `editor.py` | Le entrega los nodos y aristas de la red en edición, con el bus seleccionado marcado |
+
+---
+
+#### `widgets.py`
+**Módulo conceptual:** Componentes Compartidos
+
+Los componentes de UI que el Editor y el Dashboard usan igual: el campo de formulario con su etiqueta y la leyenda del grafo. Sólo vive acá lo que las dos pestañas comparten; los helpers propios de una (el panel de detalle del Editor, los KPIs del Dashboard) se quedan en su módulo.
+
+Notas de implementación:
+- La leyenda es una sola función con un interruptor (`leyenda(con_estado=...)`). El estado de tensión —sana, alerta, crítica— sólo tiene sentido después de simular, así que es exclusivo del Dashboard: en el Editor la red todavía no tiene tensiones.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `dashboard.py` | Le entrega los campos de formulario y la leyenda con estado de tensión |
+| Retorna | `editor.py` | Le entrega los campos de formulario y la leyenda sin estado de tensión |
+
+---
+
+#### `theme.py`
+**Módulo conceptual:** Tema de Gráficos
+
+La paleta y el template de estilo de los gráficos de Plotly. Los colores vienen de una paleta validada para daltonismo, y los fondos son transparentes con tinta y grilla neutras: el mismo `Figure` se lee bien en tema claro y en oscuro, así que cambiar de tema no obliga a volver a renderizar los gráficos.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `dashboard.py` | Le entrega la figura con el template del proyecto aplicado |
 
 ---
 
@@ -114,17 +170,35 @@ Ofrece dos modos de edición: gráfico con botones para agregar o quitar element
 #### `network_service.py`
 **Módulo conceptual:** Servicio Red
 
-Es el responsable de tener siempre una red lista para simular. Sabe cómo cargar una red desde tres fuentes distintas: SimBench, un shapefile argentino o código Python del usuario. Cuando el usuario hace un cambio en el Editor, aplica ese cambio sobre la red que ya está cargada. Delega la construcción real de la red en `network_model.py`: él decide qué construir, pero no toca pandapower directamente. Puede guardar y recuperar configuraciones de red a través del repositorio.
+Es el responsable de tener siempre una red lista para simular. Sabe cómo cargar una red desde tres fuentes distintas: SimBench, un shapefile argentino o código Python del usuario. Cuando el usuario hace un cambio en el Editor, aplica ese cambio sobre la red que ya está cargada. Delega la construcción real de la red en `network_model.py`: él decide qué construir, pero no toca pandapower directamente, y delega en `code_gen.py` la emisión del script que reconstruye la red. Puede guardar y recuperar configuraciones de red a través del repositorio.
 
 | Tipo | Archivo | Descripción |
 |---|---|---|
 | Solicita | `network_model.py` | Le dice qué red construir y qué elementos agregar o quitar |
+| Solicita | `code_gen.py` | Le pide el script Python que reconstruye la red actual desde cero |
 | Solicita | `json_net_repository.py` | Le pide guardar la configuración actual o recuperar una guardada antes |
 | Solicita | SimBench / datos.gob.ar | Le pide la red base cuando el usuario elige cargar desde SimBench o desde un shapefile argentino |
 | Retorna | `dashboard.py` | Le devuelve la red lista para mostrar en el Dashboard y en el Editor |
 | Retorna | `editor.py` | Le devuelve el estado actualizado de la red para que lo muestre |
 | Retorna | `network_model.py` | Recibe la red lista para simular |
 | Retorna | `json_net_repository.py` | Recibe la topología y los parámetros eléctricos guardados |
+
+---
+
+#### `code_gen.py`
+**Módulo conceptual:** Generador de Código
+
+Emite el script Python que reconstruye la red actual desde cero: es lo que el Editor muestra en su pestaña de código y lo que vuelve a ejecutar cuando el usuario aprieta «Ejecutar código». Una función por tabla de pandapower, todas con la misma forma, más los helpers que traducen una celda a su literal Python. Vive aparte de `network_service.py` porque no es coordinación sino traducción de red a texto.
+
+Notas de implementación:
+- El script tiene que ser **fiel**, porque se regenera después de cada acción del Editor y se vuelve a aplicar con un botón: emite el índice de cada elemento (para que no se renumeren al reconstruir), `in_service`, la regulación del transformador, los interruptores y los límites de OPF.
+- Líneas y transformadores se emiten con `create_*_from_parameters` y sus valores eléctricos reales, para que cualquier red se reconstruya sin depender de que su `std_type` esté en la librería de tipos.
+- Los números se recortan a 12 cifras **significativas**, no a 12 decimales: redondear a decimales fijos degradaba los valores chicos (un `length_km` de 0.0123456789 perdía cuatro órdenes de precisión relativa) y esa diferencia se propaga a las pérdidas de la simulación.
+- Limitación conocida: las columnas de metadatos propias de SimBench (`subnet`, `voltLvl`, `profile`, `phys_type`, …) no se emiten. No son eléctricas y no afectan el resultado.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `network_service.py` | Le devuelve el script listo para que el Editor lo muestre |
 
 ---
 
@@ -228,11 +302,53 @@ El tipo de consumidor es un atributo **de cada carga** (`net.load.perfil_tipo`),
 
 ---
 
+#### `epocas.py`
+**Módulo conceptual:** Épocas del Año
+
+Define las ocho ventanas típicas del año —las cuatro estaciones del hemisferio sur más los cuatro puntos intermedios— con las que se pide el perfil solar. Cada época es una ventana de unos tres meses centrada en su fecha de referencia: solsticios, equinoccios y los puntos medios entre ellos.
+
+Notas de implementación:
+- Promediar varios años es lo que vuelve al perfil *típico* en vez de la foto de un año puntual: un invierno anómalamente nublado deja de dominar la forma de la curva. Y promediar tres meses en vez de una semana suaviza el clima del día sin mezclar estaciones — la ventana no llega a tocar la época opuesta.
+- NASA POWER publica con varios meses de demora, así que el año más reciente que se promedia es el último cuya ventana entera cae antes de ese horizonte; si no, llegaría incompleta.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `data_sync_service.py` | Le entrega los rangos de fechas a descargar para la época pedida |
+| Retorna | `dashboard.py` | Le entrega las opciones y etiquetas del desplegable de época |
+
+---
+
+#### `tiempo.py`
+**Módulo conceptual:** Tiempo Local
+
+Normaliza a hora local argentina todo lo que se persiste en el caché. Las dos fuentes externas vienen en husos distintos —NASA POWER entrega UTC y CAMMESA hora local—, y antes ambas se guardaban tal como llegaban, con la hora del día extraída cortando el string sin mirar el huso. Resultado: el perfil solar quedaba corrido tres horas respecto del de demanda y el pico de sol aparecía a las 16 h en vez del mediodía.
+
+Notas de implementación:
+- Usa un offset fijo de UTC−3 en vez de `zoneinfo`: Argentina no aplica horario de verano desde 2009, así que el offset es constante para todo el rango de datos del proyecto, y evita depender del paquete `tzdata` (necesario en Windows, donde el sistema no trae base de husos).
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | `data_sync_service.py` | Le devuelve los timestamps ya convertidos a hora local argentina |
+| Retorna | `profile_builder.py` | Le devuelve la hora del día de cada registro de las series cacheadas |
+
+---
+
 ### `repositories/` — Acceso a datos
 
 Los repositorios son la única parte del sistema que sabe cómo están guardados los datos en disco. Reciben objetos del dominio, los traducen a JSON para guardarlos, y traducen JSON a objetos del dominio cuando los devuelven. El resto del sistema nunca lee ni escribe archivos directamente.
 
 > **Migración futura:** para pasar a SQL basta con crear una versión `sql_xxx_repository.py` de cada uno que implemente los mismos métodos. El resto del código no se toca.
+
+---
+
+#### `paths.py`
+**Módulo conceptual:** Rutas de Datos
+
+La ubicación canónica de los datos de runtime. Todos los repositorios anclan sus rutas acá en vez de usar rutas relativas al directorio de trabajo: con rutas relativas, arrancar la app desde la raíz del repo (o desde un IDE) creaba un árbol `data/` vacío en otro lado y las redes guardadas desaparecían del desplegable sin ningún error visible.
+
+| Tipo | Archivo | Descripción |
+|---|---|---|
+| Retorna | Todos los repositorios | Les entrega la ruta absoluta de su carpeta de datos |
 
 ---
 
@@ -293,6 +409,17 @@ Guarda y lee los datos de irradiación solar de NASA POWER en archivos JSON bajo
 | ------- | ----------------------- | ------------------------------------------------------------------------------ |
 | Lee     | `profile_builder.py`    | Provee la serie de irradiación solar para construir los perfiles de generación |
 | Escribe | `data_sync_service.py`  | Recibe y persiste los datos nuevos descargados de NASA POWER                   |
+
+---
+
+### `main.py` — Punto de entrada
+
+Arma la app de Dash con sus dos pestañas y crea **una sola instancia** de cada servicio, compartida por ambas: es lo que hace que el Editor y el Dashboard trabajen sobre la misma red en memoria. Los repositorios de caché también se comparten, así lo que sincroniza el Dashboard queda disponible para la próxima simulación.
+
+Notas de implementación:
+- La herramienta es **local y monousuario a propósito**, y son dos decisiones de diseño las que lo vuelven un requisito y no una preferencia. Primero, el Editor ejecuta código Python del usuario con `exec`: expuesto en red, eso es ejecución remota de código arbitraria y sin autenticación. Segundo, el estado —la red en memoria— es una única instancia compartida por todo el proceso, que es justamente lo que permite que las dos pestañas editen la misma red, y también lo que impide atender a dos usuarios a la vez.
+- Por eso la app escucha sólo en `127.0.0.1` y no se exporta un objeto WSGI para gunicorn. Para habilitar multiusuario primero hay que aislar el estado por sesión y sacar (o encerrar) el `exec`.
+- El modo debug de Dash levanta la consola interactiva de Werkzeug, que ejecuta código arbitrario desde el navegador: se activa a pedido con `MG_DEBUG=1`, nunca por defecto.
 
 ---
 

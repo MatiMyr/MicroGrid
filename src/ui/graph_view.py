@@ -11,6 +11,9 @@ from typing import Dict, Optional
 # Estado eléctrico -> paleta de status (dataviz): good / warning / critical.
 _GOOD, _WARNING, _CRITICAL, _IDLE = "#0ca30c", "#eda100", "#d03b3b", "#9e9e9e"
 
+# Colores neutros de "todavía no se simuló".
+_BUS_SIN_SIMULAR, _LINEA_SIN_SIMULAR = "#2a78d6", "#90a4ae"
+
 # Escala geo -> píxeles.
 _SCALE = 34.0
 
@@ -95,6 +98,120 @@ def _color_por_carga(loading_pct: float) -> str:
     return "#7a8a99"
 
 
+def _conteos_por_bus(net) -> Dict[str, Dict[int, int]]:
+    """Cuántos elementos de cada clase cuelgan de cada bus (para los badges)."""
+    conteos: Dict[str, Dict[int, int]] = {}
+    for clase in _BADGE:
+        df = getattr(net, clase, None)
+        if df is None or not len(df):
+            conteos[clase] = {}
+        else:
+            conteos[clase] = {int(k): int(v) for k, v in df["bus"].value_counts().items()}
+    return conteos
+
+
+def _badges(conteos: Dict[str, Dict[int, int]], bus_idx: int) -> str:
+    """Emojis de los elementos del bus, con su cantidad si hay más de uno."""
+    partes = []
+    for clase, emoji in _BADGE.items():
+        n = conteos[clase].get(bus_idx, 0)
+        if n:
+            partes.append(f"{emoji}{n}" if n > 1 else emoji)
+    return " ".join(partes)
+
+
+def _estado_bus(vm, simulada: bool) -> tuple[str, str]:
+    """Color y sufijo de etiqueta de un bus, según lo que dijo la simulación.
+
+    Los tres casos son distintos y hay que mantenerlos separados: sin simular,
+    simulado con tensión, y simulado **sin solución** (el bus no aparece en el
+    perfil por estar aislado o aguas abajo de algo fuera de servicio). Este
+    último va en gris de "sin dato", nunca en el rojo de tensión crítica.
+    """
+    if vm is not None:
+        return _color_por_tension(float(vm)), f"\n{float(vm):.3f} pu"
+    if simulada:
+        return _IDLE, "\nsin conexión"
+    return _BUS_SIN_SIMULAR, ""
+
+
+def _estado_linea(load, simulada: bool) -> tuple[str, str]:
+    """Color y sufijo de etiqueta de una línea (mismos tres casos que el bus)."""
+    if load is not None:
+        return _color_por_carga(float(load)), f" · {float(load):.0f}%"
+    if simulada:
+        return _IDLE, " · sin conexión"
+    return _LINEA_SIN_SIMULAR, ""
+
+
+def _nodos_bus(net, voltage_profile, simulada, editable, selected) -> list[dict]:
+    conteos = _conteos_por_bus(net)
+    offsets = bus_pixel_offsets(net)
+    nodos = []
+    for idx in net.bus.index:
+        bus_idx = int(idx)
+        nombre = net.bus.at[idx, "name"]
+        etiqueta = str(nombre) if nombre is not None and str(nombre) != "nan" else f"Bus {idx}"
+
+        vm = voltage_profile.get(idx, voltage_profile.get(str(idx)))
+        color, sufijo = _estado_bus(vm, simulada)
+        label = etiqueta + sufijo
+        badges = _badges(conteos, bus_idx)
+        if badges:
+            label = f"{label}\n{badges}"
+
+        clases = ["bus"]
+        if conteos["ext_grid"].get(bus_idx, 0) > 0:
+            clases.append("slack")
+        es_sel = selected is not None and bus_idx == int(selected)
+        if es_sel:
+            clases.append("sel")
+
+        nodo = {
+            "data": {"id": f"b{bus_idx}", "label": label, "color": color},
+            "classes": " ".join(clases),
+            # Solo el bus seleccionado es arrastrable; el resto queda fijo hasta
+            # seleccionarlo (un tap lo selecciona aunque no sea arrastrable).
+            "grabbable": bool(editable) and es_sel,
+        }
+        pos = _bus_xy(net, idx)
+        if pos is not None:
+            x, y = pos
+            # Separa buses en coordenadas (casi) coincidentes con un desplazamiento
+            # determinista, para que no queden apilados uno sobre otro. Es solo
+            # visual: el Editor lo descuenta antes de guardar la posición.
+            dx, dy = offsets.get(bus_idx, (0.0, 0.0))
+            nodo["position"] = {"x": x + dx, "y": y + dy}
+        nodos.append(nodo)
+    return nodos
+
+
+def _aristas_linea(net, line_loading, simulada) -> list[dict]:
+    aristas = []
+    for idx in net.line.index:
+        f, t = int(net.line.at[idx, "from_bus"]), int(net.line.at[idx, "to_bus"])
+        load = line_loading.get(idx, line_loading.get(str(idx)))
+        color, sufijo = _estado_linea(load, simulada)
+        aristas.append({
+            "data": {"source": f"b{f}", "target": f"b{t}", "id": f"l{idx}",
+                     "label": f"L{idx}{sufijo}", "color": color},
+            "classes": "line",
+        })
+    return aristas
+
+
+def _aristas_trafo(net) -> list[dict]:
+    return [
+        {
+            "data": {"source": f"b{int(net.trafo.at[idx, 'hv_bus'])}",
+                     "target": f"b{int(net.trafo.at[idx, 'lv_bus'])}",
+                     "id": f"t{idx}", "label": f"T{idx}"},
+            "classes": "trafo",
+        }
+        for idx in net.trafo.index
+    ]
+
+
 def net_to_elements(
     net,
     voltage_profile: Optional[Dict[int, float]] = None,
@@ -112,101 +229,16 @@ def net_to_elements(
     layout ``preset``. Con ``editable=True`` los buses son arrastrables; los
     demás nodos quedan fijos siempre.
     """
-    elements: list[dict] = []
     voltage_profile = voltage_profile or {}
     line_loading = line_loading or {}
     # Distingue "todavía no se simuló" de "se simuló y este elemento quedó sin
     # solución": en el segundo caso el elemento falta en el perfil.
     simulada = bool(voltage_profile) or bool(line_loading)
-
-    # Conteo de elementos conectados por bus (para los badges).
-    def _por_bus(tabla) -> Dict[int, int]:
-        df = getattr(net, tabla, None)
-        if df is None or not len(df):
-            return {}
-        return {int(k): int(v) for k, v in df["bus"].value_counts().items()}
-
-    conteos = {clase: _por_bus(clase) for clase in _BADGE}
-
-    def _badges(bus_idx: int) -> str:
-        partes = []
-        for clase, emoji in _BADGE.items():
-            n = conteos[clase].get(bus_idx, 0)
-            if n:
-                partes.append(f"{emoji}{n}" if n > 1 else emoji)
-        return " ".join(partes)
-
-    # Buses (con badges de sus elementos conectados) + jitter anti-superposición.
-    offsets = bus_pixel_offsets(net)
-    for idx in net.bus.index:
-        bus_idx = int(idx)
-        nombre = net.bus.at[idx, "name"]
-        etiqueta = str(nombre) if nombre is not None and str(nombre) != "nan" else f"Bus {idx}"
-        badges = _badges(bus_idx)
-        vm = voltage_profile.get(idx, voltage_profile.get(str(idx)))
-        if vm is not None:
-            color = _color_por_tension(float(vm))
-            label = f"{etiqueta}\n{float(vm):.3f} pu"
-        elif simulada:
-            # Se simuló, pero este bus no está en el perfil: el flujo no le
-            # encontró solución (aislado, o aguas abajo de algo fuera de
-            # servicio). Gris de "sin dato", nunca el rojo de tensión crítica.
-            color = _IDLE
-            label = f"{etiqueta}\nsin conexión"
-        else:
-            color = "#2a78d6"
-            label = etiqueta
-        if badges:
-            label = f"{label}\n{badges}"
-        clases = ["bus"]
-        if conteos["ext_grid"].get(bus_idx, 0) > 0:
-            clases.append("slack")
-        es_sel = selected is not None and bus_idx == int(selected)
-        if es_sel:
-            clases.append("sel")
-        el = {
-            "data": {"id": f"b{bus_idx}", "label": label, "color": color},
-            "classes": " ".join(clases),
-            # Solo el bus seleccionado es arrastrable; el resto queda fijo hasta
-            # seleccionarlo (un tap lo selecciona aunque no sea arrastrable).
-            "grabbable": bool(editable) and es_sel,
-        }
-        pos = _bus_xy(net, idx)
-        if pos is not None:
-            x, y = pos
-            # Separa buses en coordenadas (casi) coincidentes con un desplazamiento
-            # determinista, para que no queden apilados uno sobre otro. Es solo
-            # visual: el Editor lo descuenta antes de guardar la posición.
-            dx, dy = offsets.get(bus_idx, (0.0, 0.0))
-            el["position"] = {"x": x + dx, "y": y + dy}
-        elements.append(el)
-
-    # Líneas
-    for idx in net.line.index:
-        f, t = int(net.line.at[idx, "from_bus"]), int(net.line.at[idx, "to_bus"])
-        data = {"source": f"b{f}", "target": f"b{t}", "id": f"l{idx}", "label": f"L{idx}"}
-        load = line_loading.get(idx, line_loading.get(str(idx)))
-        if load is not None:
-            data["color"] = _color_por_carga(float(load))
-            data["label"] = f"L{idx} · {float(load):.0f}%"
-        elif simulada:
-            data["color"] = _IDLE
-            data["label"] = f"L{idx} · sin conexión"
-        else:
-            data["color"] = "#90a4ae"
-        elements.append({"data": data, "classes": "line"})
-
-    # Transformadores
-    for idx in net.trafo.index:
-        hv, lv = int(net.trafo.at[idx, "hv_bus"]), int(net.trafo.at[idx, "lv_bus"])
-        elements.append(
-            {
-                "data": {"source": f"b{hv}", "target": f"b{lv}", "id": f"t{idx}", "label": f"T{idx}"},
-                "classes": "trafo",
-            }
-        )
-
-    return elements
+    return [
+        *_nodos_bus(net, voltage_profile, simulada, editable, selected),
+        *_aristas_linea(net, line_loading, simulada),
+        *_aristas_trafo(net),
+    ]
 
 
 # Hoja de estilos de Cytoscape reutilizable (paleta del proyecto).
