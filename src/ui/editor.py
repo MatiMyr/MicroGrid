@@ -86,10 +86,13 @@ def _dfield(label, id_dict, value, tipo="number"):
 
 
 def _dselect(label, id_dict, value, opciones):
-    """Campo desplegable del panel de detalle (misma firma de State que _dfield)."""
+    """Campo desplegable del panel de detalle (misma firma de State que _dfield).
+
+    Sin buscador: son listas de tres o cuatro opciones fijas.
+    """
     return html.Div(
         [html.Label(label),
-         dcc.Dropdown(id=id_dict, value=value, clearable=False, className="dash-dropdown",
+         dcc.Dropdown(id=id_dict, value=value, clearable=False, searchable=False,
                       options=[{"label": o.capitalize(), "value": o} for o in opciones])],
         className="field", style={"minWidth": "140px"},
     )
@@ -179,7 +182,7 @@ def layout():
                                 ]),
                                 _fila([
                                     html.Div(dcc.Dropdown(id="ed-guardadas", placeholder="Red guardada…",
-                                                          className="dash-dropdown"),
+                                                          searchable=True),
                                              className="field", style={"minWidth": "180px"}),
                                     _btn("Abrir", "ed-btn-guardada"),
                                     html.Button("🗑 Borrar", id="ed-btn-borrar", n_clicks=0,

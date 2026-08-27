@@ -232,25 +232,69 @@ textarea.code::selection { background: var(--accent-soft); }
 .btn-primary:hover { filter: brightness(1.05); border-color: var(--accent); }
 .btn-sm { padding: 6px 11px; font-size: 12.5px; }
 
-/* Dropdown (react-select de dcc) */
-.dash-dropdown .Select-control,
-.dash-dropdown .is-focused:not(.is-open) > .Select-control {
-  background: var(--surface-2) !important;
-  border: 1px solid var(--border-str) !important;
-  border-radius: var(--radius-sm) !important;
-  color: var(--ink) !important;
-  min-height: 38px;
+/* ---------- Dropdown (dcc.Dropdown, Dash 4) ----------
+   Dash 4 reescribió dcc.Dropdown: ya no es react-select v1 (.Select-control,
+   .VirtualizedSelectOption dejaron de existir). El componente nuevo se tematiza
+   con tokens --Dash-*, que dash_core_components.js define en :root sólo para
+   tema claro. Los redefinimos acá contra nuestra paleta; usamos :root:root para
+   ganarle en especificidad al <style> que inyecta Dash después del asset. */
+:root:root {
+  --Dash-Spacing:                 4px;
+  --Dash-Stroke-Strong:           var(--border-str);
+  --Dash-Stroke-Weak:             var(--border);
+  --Dash-Fill-Interactive-Strong: var(--accent);
+  --Dash-Fill-Interactive-Weak:   var(--accent-soft);
+  --Dash-Fill-Inverse-Strong:     var(--surface-2);
+  --Dash-Fill-Primary-Hover:      var(--accent-soft);
+  --Dash-Fill-Primary-Active:     var(--accent-soft);
+  --Dash-Fill-Disabled:           var(--border);
+  --Dash-Text-Primary:            var(--ink);
+  --Dash-Text-Strong:             var(--ink);
+  --Dash-Text-Weak:               var(--ink-2);
+  --Dash-Text-Disabled:           var(--muted);
+  --Dash-Shading-Strong:          rgba(11, 11, 11, .18);
+  --Dash-Shading-Weak:            rgba(11, 11, 11, .10);
 }
-.dash-dropdown .Select-value-label,
-.dash-dropdown .Select-placeholder,
-.dash-dropdown .Select-input > input { color: var(--ink) !important; }
-.dash-dropdown .Select-menu-outer {
-  background: var(--surface) !important;
-  border: 1px solid var(--border-str) !important;
+:root:root[data-theme="dark"] {
+  --Dash-Shading-Strong: rgba(0, 0, 0, .55);
+  --Dash-Shading-Weak:   rgba(0, 0, 0, .40);
+}
+@media (prefers-color-scheme: dark) {
+  :root:root:where(:not([data-theme="light"])) {
+    --Dash-Shading-Strong: rgba(0, 0, 0, .55);
+    --Dash-Shading-Weak:   rgba(0, 0, 0, .40);
+  }
+}
+
+/* El disparador se alinea con .field input (alto, radio, foco). */
+.dash-dropdown {
   border-radius: var(--radius-sm);
+  font-size: 13px;
+  transition: border-color .15s, box-shadow .15s;
 }
-.dash-dropdown .VirtualizedSelectOption { background: var(--surface) !important; color: var(--ink-2) !important; }
-.dash-dropdown .VirtualizedSelectFocusedOption { background: var(--accent-soft) !important; color: var(--ink) !important; }
+.dash-dropdown .dash-dropdown-trigger { min-height: 38px; padding: 0 10px; }
+.dash-dropdown:focus, .dash-dropdown[aria-expanded="true"] {
+  border: 1px solid var(--accent);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* El menú: superficie de tarjeta, y hover/selección visibles. */
+.dash-dropdown-content {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+  font-size: 13px;
+}
+.dash-dropdown-option {
+  border-radius: 5px;
+  box-shadow: none;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.dash-dropdown-option:hover { background: var(--accent-soft); color: var(--ink); }
+.dash-dropdown-option[aria-selected="true"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
+.dash-dropdown-search-container { background: var(--surface-2); }
 
 /* ---------- Accordions (details) ---------- */
 details.acc {
