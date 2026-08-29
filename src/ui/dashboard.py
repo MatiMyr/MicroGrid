@@ -173,10 +173,6 @@ def layout():
             html.Div(
                 [
                     html.H3("Configuración de la corrida"),
-                    html.P("Simulá la microgrid hora a hora. El tipo de consumidor de cada carga "
-                           "y el SoC inicial de cada batería se configuran en el Editor, tocando "
-                           "su bus: así una misma red puede mezclar viviendas, comercios e industria.",
-                           className="card-sub"),
                     html.Div(
                         [
                             _dropdown("Tipo de flujo", "db-mode",
